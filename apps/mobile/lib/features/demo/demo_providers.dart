@@ -1058,6 +1058,34 @@ DemoDataState _seed() {
       y: 0.7,
       subtitle: 'Bể 5000 lít',
     ),
+    // x+y sort order drives the board grid slot — see ZoneScene._ordered.
+    DemoZone(
+      id: 'zone-ruong-ngo',
+      farmId: farmBaViId,
+      name: 'Ruộng ngô',
+      kind: DemoZoneKind.crop,
+      x: 0.3,
+      y: 0.7,
+      subtitle: 'Luống ngô lai',
+    ),
+    DemoZone(
+      id: 'zone-kho',
+      farmId: farmBaViId,
+      name: 'Kho nông cụ',
+      kind: DemoZoneKind.storage,
+      x: 0.7,
+      y: 0.9,
+      subtitle: 'Kho phía tây',
+    ),
+    DemoZone(
+      id: 'zone-nha-xuong',
+      farmId: farmBaViId,
+      name: 'Nhà xưởng',
+      kind: DemoZoneKind.house,
+      x: 0.9,
+      y: 0.9,
+      subtitle: 'Gần cổng chính',
+    ),
   ];
 
   const zonesTrongTai = [

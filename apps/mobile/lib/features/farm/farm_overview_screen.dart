@@ -164,6 +164,11 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
                       onOpenDetail: (zone) => context.push(
                         '${AppRoutes.zoneDetail}/${Uri.encodeComponent(zone.id)}',
                       ),
+                      onAdd: () => _openCreateZoneSheet(
+                        context,
+                        ref,
+                        state.selectedFarmId,
+                      ),
                     ),
                   ),
                   const SizedBox(height: FarmSpacing.sm),

@@ -91,6 +91,7 @@ class ZoneScene extends StatefulWidget {
     required this.selectedZoneId,
     required this.onSelect,
     required this.onOpenDetail,
+    this.onAdd,
     super.key,
   });
 
@@ -98,6 +99,10 @@ class ZoneScene extends StatefulWidget {
   final String? selectedZoneId;
   final ValueChanged<String> onSelect;
   final ValueChanged<DemoZone> onOpenDetail;
+
+  /// Shows the floating "+" in the map's top-right corner (reference has an
+  /// add-zone affordance there). Null hides the button.
+  final VoidCallback? onAdd;
 
   @override
   State<ZoneScene> createState() => _ZoneSceneState();
@@ -162,16 +167,30 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
   int _cellIndex(DemoZone zone) =>
       _ordered.indexWhere((z) => z.id == zone.id);
 
+  /// Number of grid rows for the current zone list (two per row).
+  int get _rows => (_ordered.length + 1) ~/ 2;
+
+  /// Canvas height grows with the board: each row is one tile pitch tall.
+  /// 34px top margin leaves room for the overlapping label pills.
+  double _mapHeight(double width) {
+    final th = width * 0.42 * 0.72;
+    final pitch = th * 1.38;
+    return 34 + pitch * (_rows - 1) + th + 28;
+  }
+
   /// Grid cell center with a small per-zone jitter so the grid reads organic
-  /// rather than rigid.
+  /// rather than rigid. Rows are spaced by tile pitch, not a canvas fraction,
+  /// so taller boards keep a constant rhythm.
   Offset _tileCenter(DemoZone zone, int index, Size canvas) {
     final col = index % 2;
     final row = index ~/ 2;
+    final th = _tileH(canvas);
+    final pitch = th * 1.38;
     final jx = (zone.x - 0.5) * canvas.width * 0.05;
-    final jy = (zone.y - 0.5) * canvas.height * 0.05;
+    final jy = (zone.y - 0.5) * canvas.height * 0.04;
     return Offset(
       canvas.width * (0.28 + col * 0.44) + jx,
-      canvas.height * (0.3 + row * 0.48) + jy,
+      34 + th / 2 + pitch * row + jy,
     );
   }
 
@@ -206,7 +225,9 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
             panEnabled: true,
             child: SizedBox(
               width: double.infinity,
-              height: 320,
+              height: _mapHeight(
+                MediaQuery.sizeOf(context).width - FarmSpacing.lg * 2,
+              ),
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final canvas = Size(
@@ -220,6 +241,31 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                       const Positioned.fill(
                         child: CustomPaint(painter: _IsoGroundPainter()),
                       ),
+                      if (widget.onAdd != null)
+                        Positioned(
+                          top: 10,
+                          right: 10,
+                          child: Semantics(
+                            button: true,
+                            label: 'Tạo vùng mới',
+                            child: Material(
+                              color: FarmlyColors.surface,
+                              shape: const CircleBorder(),
+                              elevation: 2,
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: widget.onAdd,
+                                child: const SizedBox.square(
+                                  dimension: 40,
+                                  child: Icon(
+                                    Icons.add,
+                                    color: FarmlyColors.brandAction,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       // Painter order: iso rows back-to-front so nearer
                       // tiles overdraw further ones correctly.
                       for (final (tileIndex, zone) in _ordered.indexed)
@@ -512,6 +558,10 @@ class IsoZoneTilePainter extends CustomPainter {
         final lower = name.toLowerCase();
         if (lower.contains('cà chua') || lower.contains('tomato')) {
           _paintTomatoField(canvas, w, h);
+        } else if (lower.contains('ngô') ||
+            lower.contains('corn') ||
+            lower.contains('bắp')) {
+          _paintCornField(canvas, w, h);
         } else {
           _paintLeafyField(canvas, w, h);
         }
@@ -706,6 +756,32 @@ class IsoZoneTilePainter extends CustomPainter {
         canvas.drawLine(Offset(px, y - 8), Offset(px, y + 8), stake);
         _sphere(canvas, Offset(px, y - 4), 5.4, FarmlyColors.brandAction);
         canvas.drawCircle(Offset(px + 3.4, y - 2), 1.9, fruit);
+      }
+    }
+  }
+
+  /// Corn field: tall green stalk strokes with golden kernel dots, like the
+  /// reference's dense corn tile.
+  void _paintCornField(Canvas canvas, double w, double h) {
+    final stalk = Paint()
+      ..color = FarmlyColors.brandAction
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round;
+    final kernel = Paint()..color = FarmlyColors.semanticWarning;
+    for (var r = 0; r < 4; r++) {
+      final t = r / 3;
+      final y = h * (0.2 + r * 0.2);
+      for (var i = 0; i < 7; i++) {
+        final px = w * (0.12 + i * 0.127);
+        // Stalk stroke.
+        canvas.drawLine(
+          Offset(px, y + 6),
+          Offset(px, y - 8 - t * 2),
+          stalk,
+        );
+        // Kernel dots.
+        canvas.drawCircle(Offset(px - 2.4, y - 2), 1.8, kernel);
+        canvas.drawCircle(Offset(px + 2.4, y - 5), 1.8, kernel);
       }
     }
   }
