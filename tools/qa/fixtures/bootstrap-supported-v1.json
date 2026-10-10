@@ -1,0 +1,119 @@
+{
+  "fixtureId": "farmly-supported-bootstrap-v1",
+  "fixtureSchemaVersion": "farm-bootstrap-fixture.v1",
+  "serializerVersion": "farmly-bootstrap-wire.v1",
+  "profilePurpose": "synthetic-high-volume-supported-domain-shape",
+  "snapshot": {
+    "snapshotId": "00000000-0000-4000-8000-000000000010",
+    "organizationId": "00000000-0000-4000-8000-000000000001",
+    "farmId": "00000000-0000-4000-8000-000000000002",
+    "continuityEpoch": "synthetic-continuity-epoch-v1",
+    "scopePolicyVersion": 7,
+    "highWatermark": "9000",
+    "createdAt": "2026-10-05T12:00:00Z",
+    "expiresAt": "2026-10-05T12:15:00Z"
+  },
+  "chunkSizeRows": 100,
+  "entityProfiles": [
+    {
+      "entity": "farm",
+      "count": 1,
+      "template": { "id": "00000000-0000-4000-8000-000000000002", "organizationId": "00000000-0000-4000-8000-000000000001", "name": "Synthetic Farm", "areaM2": "125000.00", "timezone": "Asia/Ho_Chi_Minh", "status": "active", "version": 1 }
+    },
+    {
+      "entity": "zones",
+      "count": 16,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "type": "{{cycle:field|greenhouse|orchard}}", "name": "Zone {{index}}", "areaM2": "1250.00", "status": "active", "version": 1 }
+    },
+    {
+      "entity": "cropSpecies",
+      "count": 24,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "name": "Synthetic crop {{index}}", "defaultUnit": "kg", "version": 1 }
+    },
+    {
+      "entity": "plantings",
+      "count": 240,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "cropSpeciesId": "00000000-0000-4000-8000-000000000100", "zoneId": "00000000-0000-4000-8000-000000000101", "status": "{{cycle:active|completed|archived}}", "sowingDate": "2026-01-15", "expectedHarvestDate": "2026-10-20", "areaM2": "250.00", "version": 2 }
+    },
+    {
+      "entity": "plantingEvents",
+      "count": 720,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "plantingId": "00000000-0000-4000-8000-000000000200", "source": "manual", "occurredAt": "2026-10-05T08:00:00Z", "recordedAt": "2026-10-05T08:01:00Z", "operationId": "{{opId}}" }
+    },
+    {
+      "entity": "herds",
+      "count": 6,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "mode": "{{cycle:batch|tracked}}", "species": "cattle", "status": "active", "version": 1 }
+    },
+    {
+      "entity": "animals",
+      "count": 240,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "herdId": "00000000-0000-4000-8000-000000000300", "tag": "SYN-{{index}}", "birthDate": "2024-03-01", "status": "{{cycle:alive|sold|deceased}}", "version": 1 }
+    },
+    {
+      "entity": "livestockMovements",
+      "count": 480,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "subjectId": "00000000-0000-4000-8000-000000000300", "type": "{{cycle:arrival|sale|birth|death|correction}}", "headDelta": 1, "occurredAt": "2026-10-05T08:00:00Z", "operationId": "{{opId}}" }
+    },
+    {
+      "entity": "animalObservations",
+      "count": 960,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "animalId": "00000000-0000-4000-8000-000000000400", "type": "bodyCondition", "method": "manual", "value": "3.00", "unit": "score", "source": "manual", "asOf": "2026-10-05T08:00:00Z", "operationId": "{{opId}}" }
+    },
+    {
+      "entity": "productionRecords",
+      "count": 600,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "subjectId": "00000000-0000-4000-8000-000000000400", "type": "{{cycle:milk|eggs|weight}}", "quantity": "12.375", "unit": "{{cycle:litre|pieces|kg}}", "date": "2026-10-05", "operationId": "{{opId}}" }
+    },
+    {
+      "entity": "taskTemplates",
+      "count": 64,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "type": "{{cycle:watering|feeding|inspection|harvest|maintenance}}", "timezone": "Asia/Ho_Chi_Minh", "status": "active", "version": 1 }
+    },
+    {
+      "entity": "taskOccurrences",
+      "count": 896,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "templateId": "00000000-0000-4000-8000-000000000500", "type": "{{cycle:watering|feeding|inspection|harvest|maintenance}}", "dueDate": "2026-10-05", "slot": "morning", "state": "{{cycle:pending|completed|reopened|cancelled}}", "version": 1 }
+    },
+    {
+      "entity": "taskTransitions",
+      "count": 1280,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "occurrenceId": "00000000-0000-4000-8000-000000000600", "state": "{{cycle:completed|reopened|skipped}}", "occurredAt": "2026-10-05T08:00:00Z", "version": 2 }
+    },
+    {
+      "entity": "harvestRecords",
+      "count": 480,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "plantingId": "00000000-0000-4000-8000-000000000200", "quantityKg": "12.375", "harvestDate": "2026-10-05", "occurredAt": "2026-10-05T08:00:00Z", "operationId": "{{opId}}" }
+    },
+    {
+      "entity": "harvestHeads",
+      "count": 240,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "rootRecordId": "00000000-0000-4000-8000-000000000700", "effectiveRecordId": "00000000-0000-4000-8000-000000000700", "status": "effective", "version": 1 }
+    },
+    {
+      "entity": "correctionProposals",
+      "count": 24,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "originalRecordId": "00000000-0000-4000-8000-000000000700", "proposedQuantityKg": "10.000", "reason": "Synthetic correction proposal", "state": "pending", "version": 1 }
+    },
+    {
+      "entity": "moistureReadings",
+      "count": 480,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "zoneId": "00000000-0000-4000-8000-000000000101", "value": "72.00", "method": "{{cycle:probe|gravimetric|visual}}", "source": "manual", "measuredAt": "2026-10-05T08:00:00Z", "recordedAt": "2026-10-05T08:01:00Z", "operationId": "{{opId}}" }
+    },
+    {
+      "entity": "waterTanks",
+      "count": 8,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "name": "Tank {{index}}", "capacityLitres": "10000.00", "storedLitres": "7200.00", "version": 1 }
+    },
+    {
+      "entity": "waterReadings",
+      "count": 448,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "tankId": "00000000-0000-4000-8000-000000000800", "storedLitres": "7200.00", "capacitySnapshotLitres": "10000.00", "measuredAt": "2026-10-05T08:00:00Z", "operationId": "{{opId}}" }
+    },
+    {
+      "entity": "waterUsages",
+      "count": 336,
+      "template": { "id": "{{uuid}}", "farmId": "00000000-0000-4000-8000-000000000002", "tankId": "00000000-0000-4000-8000-000000000800", "usageLitres": "125.500", "usageDate": "2026-10-05", "purpose": "irrigation", "operationId": "{{opId}}" }
+    }
+  ]
+}
