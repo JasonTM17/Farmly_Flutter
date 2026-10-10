@@ -1,0 +1,76 @@
+name: farmly-test-261005
+
+services:
+  postgres:
+    image: postgres:17.11-alpine3.24
+    environment:
+      POSTGRES_DB: farmly_test_261005
+      POSTGRES_USER: farmly_bootstrap
+      POSTGRES_PASSWORD: ${FARMLY_TEST_POSTGRES_PASSWORD:?Set FARMLY_TEST_POSTGRES_PASSWORD in infra/.env}
+      FARMLY_TEST_AUTH_PASSWORD: ${FARMLY_TEST_AUTH_PASSWORD:?Set FARMLY_TEST_AUTH_PASSWORD in infra/.env}
+      FARMLY_TEST_TENANT_PASSWORD: ${FARMLY_TEST_TENANT_PASSWORD:?Set FARMLY_TEST_TENANT_PASSWORD in infra/.env}
+      FARMLY_TEST_MIGRATION_PASSWORD: ${FARMLY_TEST_MIGRATION_PASSWORD:?Set FARMLY_TEST_MIGRATION_PASSWORD in infra/.env}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=scram-sha-256
+    ports:
+      - "127.0.0.1:${FARMLY_TEST_POSTGRES_PORT:-15432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init/010-farmly-test-roles.sql:/docker-entrypoint-initdb.d/010-farmly-test-roles.sql:ro
+    networks:
+      - farmly_test
+    labels:
+      com.farmly.project: farmly-test-261005
+      com.farmly.database: farmly_test_261005
+      com.farmly.data-scope: isolated-test-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    ports:
+      - "127.0.0.1:${FARMLY_TEST_MAILPIT_UI_PORT:-18025}:8025"
+      - "127.0.0.1:${FARMLY_TEST_MAILPIT_SMTP_PORT:-11025}:1025"
+    networks:
+      - farmly_test
+    labels:
+      com.farmly.project: farmly-test-261005
+      com.farmly.data-scope: isolated-test-only
+
+  api-runner:
+    profiles: [tooling]
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile.test-runner
+    environment:
+      NODE_ENV: test
+      FARMLY_TEST_DATABASE_NAME: farmly_test_261005
+      FARMLY_TEST_DATABASE_HOST: postgres
+      FARMLY_TEST_DATABASE_PORT: 5432
+      FARMLY_TEST_AUTH_PASSWORD: ${FARMLY_TEST_AUTH_PASSWORD:?Set FARMLY_TEST_AUTH_PASSWORD in infra/.env}
+      FARMLY_TEST_TENANT_PASSWORD: ${FARMLY_TEST_TENANT_PASSWORD:?Set FARMLY_TEST_TENANT_PASSWORD in infra/.env}
+      FARMLY_TEST_MIGRATION_PASSWORD: ${FARMLY_TEST_MIGRATION_PASSWORD:?Set FARMLY_TEST_MIGRATION_PASSWORD in infra/.env}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_SECURE: "false"
+      SMTP_REQUIRE_TLS: "false"
+    networks:
+      - farmly_test
+    labels:
+      com.farmly.project: farmly-test-261005
+      com.farmly.data-scope: isolated-test-only
+
+networks:
+  farmly_test:
+    name: farmly-test-261005-network
+    internal: true
+
+volumes:
+  postgres_data:
+    name: farmly-test-261005-postgres-data
+    labels:
+      com.farmly.project: farmly-test-261005
+      com.farmly.data-scope: isolated-test-only
