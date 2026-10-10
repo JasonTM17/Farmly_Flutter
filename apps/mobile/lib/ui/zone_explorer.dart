@@ -409,34 +409,48 @@ class IsoZoneTilePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
-    final h = size.height - 8;
-    final tile = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, 0, w, h),
-      const Radius.circular(16),
-    );
+    final h = size.height;
 
-    // Soft ground shadow under the plot.
-    canvas.drawRRect(
-      tile.shift(const Offset(0, 7)),
-      Paint()
-        ..color = FarmlyColors.textPrimary.withValues(alpha: 0.14)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+    // Raised platform: a darker skirt under the rounded top face gives each
+    // plot its extruded 3D block look (reference map tiles float above the
+    // grass). ~9% of the tile height reads as the side wall.
+    final depth = h * 0.09;
+    final faceH = h - depth - 6; // 6px reserved for the soft shadow bleed.
+    const radius = Radius.circular(16);
+    final face = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, 0, w, faceH),
+      radius,
+    );
+    final skirt = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, depth, w, faceH),
+      radius,
     );
 
     final base = _baseColor();
-    canvas.drawRRect(tile, Paint()..color = base);
+    canvas.drawRRect(
+      skirt.shift(const Offset(0, 7)),
+      Paint()
+        ..color = FarmlyColors.textPrimary.withValues(alpha: 0.16)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+    );
+    canvas.drawRRect(
+      skirt,
+      Paint()
+        ..color = Color.lerp(base, FarmlyColors.textPrimary, 0.42)!,
+    );
+    canvas.drawRRect(face, Paint()..color = base);
 
     canvas.save();
-    canvas.clipRRect(tile);
-    _paintInterior(canvas, w, h);
+    canvas.clipRRect(face);
+    _paintInterior(canvas, w, faceH);
     canvas.restore();
 
     canvas.drawRRect(
-      tile,
+      face,
       Paint()
         ..color = selected
             ? FarmlyColors.brandAction
-            : Color.lerp(base, FarmlyColors.textPrimary, 0.28)!
+            : Color.lerp(base, FarmlyColors.textPrimary, 0.3)!
         ..style = PaintingStyle.stroke
         ..strokeWidth = selected ? 3.2 : 1.6,
     );
@@ -465,91 +479,136 @@ class IsoZoneTilePainter extends CustomPainter {
     )!,
   };
 
+  /// A little sphere: shaded base circle plus a top-left highlight so plants
+  /// and animals read as 3D blobs rather than flat dots.
+  void _sphere(Canvas canvas, Offset c, double r, Color color) {
+    canvas.drawCircle(
+      c + Offset(r * 0.22, r * 0.3),
+      r,
+      Paint()..color = Color.lerp(color, FarmlyColors.textPrimary, 0.22)!,
+    );
+    canvas.drawCircle(c, r, Paint()..color = color);
+    canvas.drawCircle(
+      c + Offset(-r * 0.3, -r * 0.34),
+      r * 0.36,
+      Paint()..color = FarmlyColors.surface.withValues(alpha: 0.55),
+    );
+  }
+
   void _paintInterior(Canvas canvas, double w, double h) {
     switch (kind) {
       case DemoZoneKind.crop:
-        // Furrows + tidy rows of plant dots, like the reference field plots.
+        // Furrowed soil with spherical plants; rows compress toward the top
+        // of the face so the plot reads as receding in perspective.
         final furrow = Paint()
           ..color = Color.lerp(
             FarmlyColors.semanticWarning,
             FarmlyColors.textPrimary,
-            0.3,
+            0.34,
           )!
-          ..strokeWidth = 3
           ..strokeCap = StrokeCap.round;
-        final plant = Paint()..color = FarmlyColors.brandAction;
-        final plantCore = Paint()
-          ..color = Color.lerp(
-            FarmlyColors.brandAction,
-            FarmlyColors.surface,
-            0.35,
-          )!;
         for (var r = 0; r < 4; r++) {
-          final y = h * (0.24 + r * 0.18);
-          canvas.drawLine(Offset(w * 0.09, y), Offset(w * 0.91, y), furrow);
+          final t = r / 3; // 0 = far (top), 1 = near (bottom)
+          final y = h * (0.2 + r * 0.19);
+          final inset = w * (0.16 - t * 0.07);
+          final pr = 3.4 + t * 1.8;
+          furrow.strokeWidth = 2.2 + t * 1.2;
+          canvas.drawLine(
+            Offset(inset, y),
+            Offset(w - inset, y),
+            furrow,
+          );
           for (var i = 0; i < 6; i++) {
-            final px = w * (0.13 + i * 0.148);
-            canvas.drawCircle(Offset(px, y - 5), 4.6, plant);
-            canvas.drawCircle(Offset(px, y - 5), 2.1, plantCore);
+            final px = inset + (w - inset * 2) * (i + 0.5) / 6;
+            _sphere(
+              canvas,
+              Offset(px, y - 4 - t * 2),
+              pr,
+              FarmlyColors.brandAction,
+            );
           }
         }
       case DemoZoneKind.livestock:
-        // Pasture: fence rails + posts, grazing animals bobbing gently.
+        // Pasture with fence + 3D-ish grazing blobs that bob on the phase.
         final fence = Paint()
           ..color = Color.lerp(
             FarmlyColors.semanticWarning,
             FarmlyColors.surface,
-            0.25,
+            0.22,
           )!
           ..strokeWidth = 2.6
           ..strokeCap = StrokeCap.round;
         canvas.drawLine(
-          Offset(w * 0.07, h * 0.66),
-          Offset(w * 0.93, h * 0.66),
+          Offset(w * 0.06, h * 0.68),
+          Offset(w * 0.94, h * 0.68),
           fence,
         );
         canvas.drawLine(
-          Offset(w * 0.07, h * 0.78),
-          Offset(w * 0.93, h * 0.78),
+          Offset(w * 0.06, h * 0.8),
+          Offset(w * 0.94, h * 0.8),
           fence,
         );
         for (var i = 0; i < 4; i++) {
-          final x = w * (0.16 + i * 0.23);
-          canvas.drawLine(Offset(x, h * 0.6), Offset(x, h * 0.86), fence);
+          final x = w * (0.15 + i * 0.235);
+          canvas.drawLine(Offset(x, h * 0.62), Offset(x, h * 0.88), fence);
         }
-        final body = Paint()..color = FarmlyColors.surface;
-        final edge = Paint()
-          ..color = FarmlyColors.textSecondary
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.4;
         for (var i = 0; i < 3; i++) {
-          final bob =
-              math.sin(phase * 2 * math.pi + i * 2.1) * 2.4;
+          final bob = math.sin(phase * 2 * math.pi + i * 2.1) * 2.4;
           final p = Offset(
             w * (0.24 + i * 0.26),
-            h * (0.3 + (i.isOdd ? 0.14 : 0)) + bob,
+            h * (0.32 + (i.isOdd ? 0.12 : 0)) + bob,
           );
           canvas.drawOval(
-            Rect.fromCenter(center: p, width: 22, height: 13),
-            body,
+            Rect.fromCenter(center: p, width: 24, height: 14),
+            Paint()..color = FarmlyColors.surface,
           );
           canvas.drawOval(
-            Rect.fromCenter(center: p, width: 22, height: 13),
-            edge,
+            Rect.fromCenter(center: p, width: 24, height: 14),
+            Paint()
+              ..color = FarmlyColors.textSecondary
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.3,
           );
-          canvas.drawCircle(p + const Offset(10, -4), 4.6, body);
-          canvas.drawCircle(p + const Offset(10, -4), 4.6, edge);
+          _sphere(
+            canvas,
+            p + const Offset(11, -5),
+            5.2,
+            Color.lerp(FarmlyColors.surface, FarmlyColors.textSecondary, 0.12)!,
+          );
         }
       case DemoZoneKind.water:
-        // Main round tank + satellite pond; rings expand with the phase.
+        // Round tank + satellite pond rendered as ellipses (viewed at an
+        // angle); ripple rings expand and fade with the phase.
+        final tankRect = Rect.fromCenter(
+          center: Offset(w * 0.36, h * 0.4),
+          width: w * 0.42,
+          height: h * 0.52,
+        );
+        final pondRect = Rect.fromCenter(
+          center: Offset(w * 0.76, h * 0.62),
+          width: w * 0.24,
+          height: h * 0.26,
+        );
         final water = Paint()..color = FarmlyColors.illustrationWater;
-        canvas.drawCircle(Offset(w * 0.36, h * 0.42), h * 0.27, water);
-        canvas.drawCircle(Offset(w * 0.75, h * 0.62), h * 0.15, water);
+        final waterEdge = Paint()
+          ..color = Color.lerp(
+            FarmlyColors.illustrationWater,
+            FarmlyColors.textPrimary,
+            0.3,
+          )!;
+        // Darker under-ellipse sells the cylinder wall of each pool.
+        canvas.drawOval(tankRect.shift(const Offset(0, 5)), waterEdge);
+        canvas.drawOval(tankRect, water);
+        canvas.drawOval(pondRect.shift(const Offset(0, 3)), waterEdge);
+        canvas.drawOval(pondRect, water);
         for (var r = 0; r < 3; r++) {
           final cycle = (phase + r / 3) % 1.0;
-          canvas.drawCircle(
-            Offset(w * 0.36, h * 0.42),
-            h * 0.27 * (0.4 + cycle * 0.55),
+          canvas.drawOval(
+            Rect.fromCenter(
+              center: tankRect.center,
+              width: tankRect.width * (0.36 + cycle * 0.5),
+              height: tankRect.height * (0.36 + cycle * 0.5),
+            ),
             Paint()
               ..color = FarmlyColors.surface.withValues(
                 alpha: 0.75 * (1 - cycle),
@@ -559,8 +618,8 @@ class IsoZoneTilePainter extends CustomPainter {
           );
         }
         final lily = Paint()..color = FarmlyColors.brandAction;
-        canvas.drawCircle(Offset(w * 0.71, h * 0.57), 3.6, lily);
-        canvas.drawCircle(Offset(w * 0.79, h * 0.66), 3, lily);
+        canvas.drawCircle(Offset(w * 0.72, h * 0.57), 3.6, lily);
+        canvas.drawCircle(Offset(w * 0.81, h * 0.65), 3, lily);
       case DemoZoneKind.house:
         _paintBuilding(canvas, w, h, FarmlyColors.illustrationBarn);
       case DemoZoneKind.storage:
@@ -570,19 +629,24 @@ class IsoZoneTilePainter extends CustomPainter {
 
   void _paintBuilding(Canvas canvas, double w, double h, Color wall) {
     final cx = w / 2;
-    final cy = h * 0.52;
+    final cy = h * 0.5;
+    // Darker right strip = 3D block rather than a flat rectangle.
     canvas.drawRect(
-      Rect.fromLTWH(cx - w * 0.16, cy - h * 0.06, w * 0.32, h * 0.3),
+      Rect.fromLTWH(cx - w * 0.16, cy - h * 0.04, w * 0.32, h * 0.3),
       Paint()..color = wall,
     );
+    canvas.drawRect(
+      Rect.fromLTWH(cx + w * 0.08, cy - h * 0.04, w * 0.08, h * 0.3),
+      Paint()..color = Color.lerp(wall, FarmlyColors.textPrimary, 0.35)!,
+    );
     final roof = Path()
-      ..moveTo(cx - w * 0.2, cy - h * 0.06)
+      ..moveTo(cx - w * 0.2, cy - h * 0.04)
       ..lineTo(cx, cy - h * 0.26)
-      ..lineTo(cx + w * 0.2, cy - h * 0.06)
+      ..lineTo(cx + w * 0.2, cy - h * 0.04)
       ..close();
     canvas.drawPath(roof, Paint()..color = FarmlyColors.surface);
     canvas.drawRect(
-      Rect.fromLTWH(cx - w * 0.05, cy + h * 0.1, w * 0.1, h * 0.14),
+      Rect.fromLTWH(cx - w * 0.05, cy + h * 0.12, w * 0.1, h * 0.14),
       Paint()..color = FarmlyColors.surface,
     );
   }
