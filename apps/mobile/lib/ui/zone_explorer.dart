@@ -272,7 +272,7 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                                 onDoubleTap: () =>
                                     widget.onOpenDetail(zone),
                                 child: FarmEntrance(
-                                  pop: true,
+                                  drop: true,
                                   delay: Duration(
                                     milliseconds: 90 * tileIndex,
                                   ),
@@ -300,6 +300,18 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                                           name: zone.name,
                                           kind: zone.kind,
                                           selected: selected,
+                                        ),
+                                      ),
+                                      // Impact puff as the tile lands.
+                                      Positioned.fill(
+                                        top: 12,
+                                        child: IgnorePointer(
+                                          child: FarmDustPuff(
+                                            delay: Duration(
+                                              milliseconds:
+                                                  90 * tileIndex + 220,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -742,9 +754,12 @@ class IsoZoneTilePainter extends CustomPainter {
         for (var i = 0; i < spots.length; i++) {
           final bob =
               math.sin(phase * 2 * math.pi + i * 2.1) * (i.isEven ? 2.4 : 0);
+          // Graze wander: each animal strolls a few px back and forth.
+          final wander =
+              math.sin(phase * 2 * math.pi + i * 1.7) * w * 0.03;
           final small = i.isOdd;
           final p = Offset(
-            w * spots[i],
+            w * spots[i] + wander,
             h * (i.isEven ? 0.3 : 0.46) + bob,
           );
           final bw = small ? 17.0 : 24.0;
@@ -816,6 +831,24 @@ class IsoZoneTilePainter extends CustomPainter {
         final lily = Paint()..color = FarmlyColors.brandAction;
         canvas.drawCircle(Offset(w * 0.72, h * 0.57), 3.6, lily);
         canvas.drawCircle(Offset(w * 0.81, h * 0.65), 3, lily);
+        // Rotating sheen sweeping the tank surface.
+        final sheen = Paint()
+          ..color = FarmlyColors.surface.withValues(alpha: 0.55)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.4
+          ..strokeCap = StrokeCap.round;
+        final sweep = phase * 2 * math.pi;
+        canvas.drawArc(
+          Rect.fromCenter(
+            center: Offset(w * 0.36, h * 0.42),
+            width: w * 0.34,
+            height: w * 0.34 * 0.62,
+          ),
+          sweep,
+          1.1,
+          false,
+          sheen,
+        );
       case DemoZoneKind.house:
         _paintBuilding(canvas, w, h, FarmlyColors.illustrationBarn);
       case DemoZoneKind.storage:
