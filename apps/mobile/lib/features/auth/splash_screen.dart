@@ -25,37 +25,27 @@ class SplashScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: tokens.background,
       body: SafeArea(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            const ExcludeSemantics(
-              child: CustomPaint(painter: FarmScenePainter(showBarn: false)),
-            ),
-            Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 600),
+        bottom: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Brand block: bare sprout mark, name, tagline (reference splash).
+              Expanded(
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Container(
-                      width: FarmSpacing.huge * 2,
-                      height: FarmSpacing.huge * 2,
-                      decoration: BoxDecoration(
-                        color: tokens.surface,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: tokens.divider),
-                      ),
-                      alignment: Alignment.center,
-                      child: const SproutMark(size: 72),
-                    ),
-                    const SizedBox(height: 12),
+                    const SproutMark(size: 64),
+                    const SizedBox(height: FarmSpacing.md),
                     Text(
                       l10n.appName,
                       style: Theme.of(context).textTheme.displaySmall?.copyWith(
                         color: tokens.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: FarmSpacing.sm),
                     Text(
                       l10n.appSubtitle,
                       textAlign: TextAlign.center,
@@ -94,8 +84,19 @@ class SplashScreen extends ConsumerWidget {
                   ],
                 ),
               ),
+              // Farm landscape anchored to the bottom edge, like the reference.
+              const SizedBox(
+                height: 220,
+                child: ExcludeSemantics(
+                  child: CustomPaint(
+                    painter: FarmScenePainter(),
+                    size: Size.infinite,
+                  ),
+                ),
+              ),
+            ],
             ),
-          ],
+          ),
         ),
       ),
     );

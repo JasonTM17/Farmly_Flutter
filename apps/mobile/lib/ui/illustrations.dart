@@ -7,7 +7,10 @@ import '../features/demo/demo_models.dart';
 /// token palette via [FarmlyColors]; no licensed imagery and no emoji glyphs.
 /// Illustrations are decorative: callers exclude them from the semantics tree.
 
-/// Rolling hills + barn + sky scene (splash, login header, empty farm, explorer).
+/// Rolling hills + barn + silo + trees + sky scene (splash, login header,
+/// empty farm, explorer). Composition follows the approved Farmly reference:
+/// blue-sky band with sun/clouds/birds, layered green hills, red barn with a
+/// gray silo, rounded trees, and cream field rows in the foreground.
 class FarmScenePainter extends CustomPainter {
   const FarmScenePainter({this.showBarn = true, this.showSun = true});
 
@@ -18,102 +21,274 @@ class FarmScenePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
+    final horizon = h * 0.68;
 
-    // Sky band.
-    final sky = Paint()..color = FarmlyColors.illustrationSky;
-    canvas.drawRect(Rect.fromLTWH(0, 0, w, h * 0.62), sky);
+    // Sky — light blue softening toward the horizon cream.
+    final skyPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          FarmlyColors.illustrationSky,
+          Color.lerp(
+            FarmlyColors.illustrationSky,
+            FarmlyColors.background,
+            0.55,
+          )!,
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, w, horizon));
+    canvas.drawRect(Rect.fromLTWH(0, 0, w, horizon), skyPaint);
 
     if (showSun) {
-      final sun = Paint()..color = FarmlyColors.illustrationBarn;
-      canvas.drawCircle(Offset(w * 0.82, h * 0.18), h * 0.09, sun);
+      _paintSun(canvas, Offset(w * 0.8, h * 0.16), h * 0.075);
     }
+    _paintCloud(canvas, Offset(w * 0.18, h * 0.13), w * 0.16);
+    _paintCloud(canvas, Offset(w * 0.55, h * 0.08), w * 0.11);
+    _paintBirds(canvas, Offset(w * 0.36, h * 0.18), h * 0.05);
 
-    // Far hill (slightly darkened sage).
+    // Far hill band (lighter sage) then near hill (darker).
     final farHill = Paint()
-      ..color = Color.lerp(FarmlyColors.brandSage, FarmlyColors.textPrimary, 0.18)!;
-    canvas.drawArc(
+      ..color = Color.lerp(
+        FarmlyColors.brandSage,
+        FarmlyColors.background,
+        0.3,
+      )!;
+    canvas.drawOval(
       Rect.fromCenter(
-        center: Offset(w * 0.28, h * 0.62),
-        width: w * 0.95,
-        height: h * 0.55,
+        center: Offset(w * 0.22, horizon + h * 0.1),
+        width: w * 1.15,
+        height: h * 0.5,
       ),
-      3.14159,
-      3.14159,
-      true,
       farHill,
     );
-
-    // Near hill.
-    final nearHill = Paint()..color = FarmlyColors.brandSage;
-    canvas.drawArc(
+    final midHill = Paint()..color = FarmlyColors.brandSage;
+    canvas.drawOval(
       Rect.fromCenter(
-        center: Offset(w * 0.72, h * 0.66),
-        width: w * 1.05,
-        height: h * 0.6,
+        center: Offset(w * 0.78, horizon + h * 0.12),
+        width: w * 1.1,
+        height: h * 0.52,
       ),
-      3.14159,
-      3.14159,
-      true,
-      nearHill,
+      midHill,
     );
 
-    // Ground.
-    final ground = Paint()..color = FarmlyColors.background;
-    canvas.drawRect(Rect.fromLTWH(0, h * 0.72, w, h * 0.28), ground);
-
-    // Field rows.
-    final row = Paint()
-      ..color = Color.lerp(FarmlyColors.brandSage, FarmlyColors.background, 0.35)!
-      ..strokeWidth = h * 0.03
+    // Ground strip + ploughed field rows (reference foreground).
+    canvas.drawRect(
+      Rect.fromLTWH(0, horizon, w, h - horizon),
+      Paint()
+        ..color = Color.lerp(
+          FarmlyColors.brandSage,
+          FarmlyColors.background,
+          0.42,
+        )!,
+    );
+    final rowPaint = Paint()
+      ..color = Color.lerp(
+        FarmlyColors.brandSage,
+        FarmlyColors.textPrimary,
+        0.12,
+      )!
+      ..strokeWidth = h * 0.02
       ..strokeCap = StrokeCap.round;
     for (var i = 0; i < 3; i++) {
-      final y = h * (0.8 + i * 0.07);
-      canvas.drawLine(Offset(w * 0.06, y), Offset(w * 0.94, y), row);
+      final y = horizon + h * (0.09 + i * 0.075);
+      canvas.drawLine(Offset(w * 0.04, y), Offset(w * 0.62, y + h * 0.02), rowPaint);
     }
 
     if (showBarn) {
-      _paintBarn(canvas, Offset(w * 0.68, h * 0.72), h * 0.3, w * 0.2);
+      _paintSilo(canvas, Offset(w * 0.8, horizon - h * 0.02), h * 0.34, w * 0.07);
+      _paintBarn(canvas, Offset(w * 0.66, horizon), h * 0.3, w * 0.22);
+    }
+    _paintTree(canvas, Offset(w * 0.1, horizon - h * 0.01), h * 0.16, w * 0.1);
+    _paintTree(canvas, Offset(w * 0.92, horizon), h * 0.14, w * 0.09);
+    _paintPine(canvas, Offset(w * 0.36, horizon + h * 0.01), h * 0.14, w * 0.06);
+  }
+
+  void _paintSun(Canvas canvas, Offset center, double r) {
+    canvas.drawCircle(
+      center,
+      r * 1.7,
+      Paint()
+        ..color = Color.lerp(
+          FarmlyColors.semanticWarning,
+          FarmlyColors.surface,
+          0.75,
+        )!.withValues(alpha: 0.4),
+    );
+    canvas.drawCircle(
+      center,
+      r,
+      Paint()
+        ..color = Color.lerp(
+          FarmlyColors.semanticWarning,
+          FarmlyColors.surface,
+          0.75,
+        )!,
+    );
+  }
+
+  void _paintCloud(Canvas canvas, Offset center, double w) {
+    final cloud = Paint()
+      ..color = FarmlyColors.surface.withValues(alpha: 0.9);
+    canvas.drawOval(
+      Rect.fromCenter(center: center, width: w, height: w * 0.42),
+      cloud,
+    );
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: center + Offset(w * 0.24, -w * 0.12),
+        width: w * 0.62,
+        height: w * 0.34,
+      ),
+      cloud,
+    );
+  }
+
+  void _paintBirds(Canvas canvas, Offset origin, double s) {
+    final bird = Paint()
+      ..color = FarmlyColors.textPrimary.withValues(alpha: 0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = s * 0.14
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 3; i++) {
+      final c = origin + Offset(s * i * 1.7, (i.isOdd ? -s * 0.5 : 0));
+      final path = Path()
+        ..moveTo(c.dx - s * 0.5, c.dy)
+        ..quadraticBezierTo(c.dx - s * 0.2, c.dy - s * 0.55, c.dx, c.dy)
+        ..quadraticBezierTo(c.dx + s * 0.2, c.dy - s * 0.55, c.dx + s * 0.5, c.dy);
+      canvas.drawPath(path, bird);
     }
   }
 
-  void _paintBarn(Canvas canvas, Offset base, double height, double width) {
-    final body = Paint()..color = FarmlyColors.illustrationBarn;
-    final bodyRect = Rect.fromCenter(
-      center: Offset(base.dx, base.dy - height * 0.4),
-      width: width,
-      height: height * 0.8,
+  void _paintTree(Canvas canvas, Offset base, double height, double width) {
+    final trunk = Paint()
+      ..color = Color.lerp(
+        FarmlyColors.semanticWarning,
+        FarmlyColors.textPrimary,
+        0.35,
+      )!;
+    canvas.drawRect(
+      Rect.fromLTWH(
+        base.dx - width * 0.07,
+        base.dy - height * 0.42,
+        width * 0.14,
+        height * 0.42,
+      ),
+      trunk,
     );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(bodyRect, Radius.circular(height * 0.05)),
-      body,
+    final canopy = Paint()
+      ..color = Color.lerp(
+        FarmlyColors.brandSage,
+        FarmlyColors.brandAction,
+        0.3,
+      )!;
+    canvas.drawCircle(Offset(base.dx, base.dy - height * 0.62), height * 0.32, canopy);
+    canvas.drawCircle(
+      Offset(base.dx - width * 0.24, base.dy - height * 0.45),
+      height * 0.22,
+      canopy,
     );
+    canvas.drawCircle(
+      Offset(base.dx + width * 0.24, base.dy - height * 0.45),
+      height * 0.22,
+      canopy,
+    );
+  }
 
-    final roof = Path()
-      ..moveTo(base.dx - width * 0.62, base.dy - height * 0.78)
-      ..lineTo(base.dx, base.dy - height * 1.15)
-      ..lineTo(base.dx + width * 0.62, base.dy - height * 0.78)
-      ..close();
-    canvas.drawPath(
-      roof,
+  void _paintPine(Canvas canvas, Offset base, double height, double width) {
+    final pine = Paint()
+      ..color = Color.lerp(
+        FarmlyColors.brandAction,
+        FarmlyColors.textPrimary,
+        0.18,
+      )!;
+    for (var i = 0; i < 3; i++) {
+      final tierW = width * (1 - i * 0.22);
+      final top = base.dy - height * (0.55 + i * 0.18);
+      final path = Path()
+        ..moveTo(base.dx, top)
+        ..lineTo(base.dx - tierW / 2, top + height * 0.32)
+        ..lineTo(base.dx + tierW / 2, top + height * 0.32)
+        ..close();
+      canvas.drawPath(path, pine);
+    }
+  }
+
+  void _paintSilo(Canvas canvas, Offset base, double height, double width) {
+    final silo = Paint()
+      ..color = Color.lerp(
+        FarmlyColors.textSecondary,
+        FarmlyColors.surface,
+        0.5,
+      )!;
+    canvas.drawRect(
+      Rect.fromLTWH(base.dx - width / 2, base.dy - height, width, height),
+      silo,
+    );
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(base.dx, base.dy - height),
+        width: width,
+        height: width * 0.9,
+      ),
       Paint()
         ..color = Color.lerp(
-          FarmlyColors.illustrationBarn,
-          FarmlyColors.textPrimary,
-          0.25,
+          FarmlyColors.textSecondary,
+          FarmlyColors.surface,
+          0.3,
         )!,
     );
+  }
 
-    final door = Paint()..color = FarmlyColors.surface;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset(base.dx, base.dy - height * 0.28),
-          width: width * 0.34,
-          height: height * 0.56,
-        ),
-        Radius.circular(height * 0.04),
+  void _paintBarn(Canvas canvas, Offset base, double height, double width) {
+    // Gambrel silhouette: roof slope break at ~60% of the wall height.
+    final barn = Path()
+      ..moveTo(base.dx - width / 2, base.dy)
+      ..lineTo(base.dx - width / 2, base.dy - height * 0.52)
+      ..lineTo(base.dx - width * 0.3, base.dy - height * 0.88)
+      ..lineTo(base.dx, base.dy - height)
+      ..lineTo(base.dx + width * 0.3, base.dy - height * 0.88)
+      ..lineTo(base.dx + width / 2, base.dy - height * 0.52)
+      ..lineTo(base.dx + width / 2, base.dy)
+      ..close();
+    canvas.drawPath(barn, Paint()..color = FarmlyColors.illustrationBarn);
+
+    // White roof cap following the gambrel peak.
+    final roofLine = Paint()
+      ..color = FarmlyColors.surface
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = height * 0.07
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(
+      Path()
+        ..moveTo(base.dx - width * 0.34, base.dy - height * 0.86)
+        ..lineTo(base.dx, base.dy - height * 0.99)
+        ..lineTo(base.dx + width * 0.34, base.dy - height * 0.86),
+      roofLine,
+    );
+
+    // Door with the reference X brace.
+    final doorRect = Rect.fromCenter(
+      center: Offset(base.dx, base.dy - height * 0.24),
+      width: width * 0.34,
+      height: height * 0.48,
+    );
+    canvas.drawRect(doorRect, Paint()..color = FarmlyColors.surface);
+    final brace = Paint()
+      ..color = FarmlyColors.illustrationBarn
+      ..strokeWidth = height * 0.035
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(doorRect.topLeft, doorRect.bottomRight, brace);
+    canvas.drawLine(doorRect.topRight, doorRect.bottomLeft, brace);
+
+    // Hayloft opening.
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(base.dx, base.dy - height * 0.68),
+        width: width * 0.16,
+        height: width * 0.16,
       ),
-      door,
+      Paint()..color = FarmlyColors.surface,
     );
   }
 

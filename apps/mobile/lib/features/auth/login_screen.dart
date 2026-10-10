@@ -107,33 +107,45 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             constraints: const BoxConstraints(maxWidth: 600),
             child: SingleChildScrollView(
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: const EdgeInsets.all(FarmSpacing.lg),
               child: AutofillGroup(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const SizedBox(
-                      height: 180,
+                    // Full-bleed illustrated header (reference login).
+                    SizedBox(
+                      height: 240,
+                      width: double.infinity,
                       child: ExcludeSemantics(
-                        child: CustomPaint(painter: FarmScenePainter()),
+                        child: CustomPaint(
+                          painter: const FarmScenePainter(),
+                          child: Padding(
+                            padding: const EdgeInsets.all(FarmSpacing.md),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SproutMark(size: 26),
+                                const SizedBox(width: FarmSpacing.sm),
+                                Text(
+                                  l10n.appName,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(color: tokens.textPrimary),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                    const SizedBox(height: FarmSpacing.lg),
-                    Container(
+                    Padding(
                       padding: const EdgeInsets.all(FarmSpacing.lg),
-                      decoration: BoxDecoration(
-                        color: tokens.surface,
-                        borderRadius: BorderRadius.circular(
-                          FarmSpacing.sheetTopRadius,
-                        ),
-                        border: Border.all(color: tokens.divider),
-                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Text(
                             l10n.loginTitle,
-                            style: Theme.of(context).textTheme.titleLarge,
+                            style: Theme.of(context).textTheme.headlineSmall,
                           ),
                           const SizedBox(height: FarmSpacing.sm),
                           Text(
@@ -156,6 +168,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             decoration: InputDecoration(
                               labelText: l10n.emailLabel,
                               errorText: _emailError,
+                              prefixIcon: const Icon(Icons.mail_outline),
                             ),
                           ),
                           const SizedBox(height: FarmSpacing.md),
@@ -173,6 +186,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             decoration: InputDecoration(
                               labelText: l10n.passwordLabel,
                               errorText: _passwordError,
+                              prefixIcon: const Icon(Icons.lock_outline),
                               suffixIcon: IconButton(
                                 tooltip: _obscure
                                     ? l10n.showPassword
@@ -187,25 +201,31 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ),
                             ),
                           ),
-                          Material(
-                            color: tokens.surface,
-                            child: CheckboxListTile(
-                              contentPadding: EdgeInsets.zero,
-                              value: _keepSignedIn,
-                              onChanged: (value) => setState(
-                                () => _keepSignedIn = value ?? false,
+                          Row(
+                            children: [
+                              Expanded(
+                                child: CheckboxListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  value: _keepSignedIn,
+                                  onChanged: (value) => setState(
+                                    () => _keepSignedIn = value ?? false,
+                                  ),
+                                  title: Text(
+                                    l10n.keepSignedIn,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                  controlAffinity:
+                                      ListTileControlAffinity.leading,
+                                ),
                               ),
-                              title: Text(l10n.keepSignedIn),
-                              controlAffinity: ListTileControlAffinity.leading,
-                            ),
-                          ),
-                          Align(
-                            alignment: AlignmentDirectional.centerEnd,
-                            child: TextButton(
-                              onPressed: () =>
-                                  context.go(AppRoutes.forgotPassword),
-                              child: Text(l10n.forgotPassword),
-                            ),
+                              TextButton(
+                                onPressed: () =>
+                                    context.go(AppRoutes.forgotPassword),
+                                child: Text(l10n.forgotPassword),
+                              ),
+                            ],
                           ),
                           if (_error != null) ...[
                             const SizedBox(height: FarmSpacing.sm),
@@ -219,16 +239,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             ),
                           ],
                           const SizedBox(height: FarmSpacing.md),
-                          FilledButton(
+                          FilledButton.icon(
                             onPressed: _submitting ? null : () => _submit(l10n),
-                            child: _submitting
-                                ? Text(l10n.signingIn)
-                                : Text(l10n.signIn),
+                            icon: const Icon(Icons.arrow_forward),
+                            label: Text(
+                              _submitting ? l10n.signingIn : l10n.signIn,
+                            ),
                           ),
-                          TextButton(
-                            onPressed: () =>
-                                context.go(_signupPath(widget.returnTo)),
-                            child: Text(l10n.createAccountPrompt),
+                          Center(
+                            child: TextButton(
+                              onPressed: () =>
+                                  context.go(_signupPath(widget.returnTo)),
+                              child: Text(
+                                l10n.createAccountPrompt,
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
                           ),
                         ],
                       ),
