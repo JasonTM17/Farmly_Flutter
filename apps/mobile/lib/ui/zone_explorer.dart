@@ -458,9 +458,15 @@ class _IsoGroundPainter extends CustomPainter {
       Offset(size.width * 0.95, size.height * 0.62),
       Offset(size.width * 0.07, size.height * 0.88),
     ];
+    final treeShade = Paint()
+      ..color = FarmlyColors.textPrimary.withValues(alpha: 0.10);
     for (var i = 0; i < spots.length; i++) {
       final p0 = spots[i];
       final sway = math.sin(phase * 2 * math.pi + i * 1.3) * 1.4;
+      canvas.drawOval(
+        Rect.fromCenter(center: p0 + const Offset(0, 8), width: 16, height: 5),
+        treeShade,
+      );
       canvas.drawLine(
         Offset(p0.dx, p0.dy + 7),
         Offset(p0.dx, p0.dy - 2),
@@ -472,6 +478,42 @@ class _IsoGroundPainter extends CustomPainter {
         3.4,
         Paint()..color = FarmlyColors.surface.withValues(alpha: 0.4),
       );
+    }
+
+    // Scatter: pebbles and tiny wildflowers along the outer margins — the
+    // reference board is dressed between and around the plots, not bare.
+    final rock = Paint()
+      ..color = FarmlyColors.textSecondary.withValues(alpha: 0.35);
+    final flowerCore = Paint()..color = FarmlyColors.semanticWarning;
+    final flowerPetal = Paint()
+      ..color = FarmlyColors.surface.withValues(alpha: 0.9);
+    final decor = <(double, double, int)>[
+      (0.06, 0.34, 0), (0.93, 0.42, 0), (0.5, 0.30, 1),
+      (0.07, 0.70, 1), (0.94, 0.80, 0), (0.5, 0.72, 1),
+      (0.08, 0.99, 0), (0.92, 0.10, 1),
+    ];
+    for (final (fx, fy, kind) in decor) {
+      final c = Offset(size.width * fx, size.height * fy);
+      if (kind == 0) {
+        canvas.drawOval(
+          Rect.fromCenter(center: c, width: 7, height: 4.5),
+          rock,
+        );
+      } else {
+        // Four-petal wildflower: light petals + warm core.
+        for (var p4 = 0; p4 < 4; p4++) {
+          canvas.drawCircle(
+            c +
+                Offset(
+                  math.cos(p4 * math.pi / 2) * 2.6,
+                  math.sin(p4 * math.pi / 2) * 2.6,
+                ),
+            1.7,
+            flowerPetal,
+          );
+        }
+        canvas.drawCircle(c, 1.4, flowerCore);
+      }
     }
   }
 
@@ -810,6 +852,18 @@ class IsoZoneTilePainter extends CustomPainter {
           0.18,
         )!,
     );
+    // Grass tufts poking through the topsoil between rows.
+    final tuft = Paint()
+      ..color = FarmlyColors.brandAction.withValues(alpha: 0.55)
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 6; i++) {
+      final px = w * (0.14 + i * 0.145);
+      final py = h * 0.46 + (i.isEven ? 0 : 4);
+      canvas.drawLine(Offset(px, py + 5), Offset(px - 2, py - 3), tuft);
+      canvas.drawLine(Offset(px, py + 5), Offset(px, py - 4), tuft);
+      canvas.drawLine(Offset(px, py + 5), Offset(px + 2, py - 3), tuft);
+    }
     final seedling = Paint()
       ..color = Color.lerp(
         FarmlyColors.brandAction,
@@ -866,7 +920,7 @@ class IsoZoneTilePainter extends CustomPainter {
       for (var i = 0; i < 7; i++) {
         final px = w * (0.12 + i * 0.127);
         // Stalk sways; kernel dots ride the lean.
-        final sway = math.sin(phase * 2 * math.pi + i * 0.75 + r * 0.55) * 1.8;
+        final sway = math.sin(phase * 2 * math.pi + i * 0.75 + r * 0.55) * 2.6;
         canvas.drawLine(
           Offset(px, y + 6),
           Offset(px + sway, y - 8 - t * 2),
