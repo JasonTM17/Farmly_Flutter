@@ -53,3 +53,29 @@ apps/mobile/test/golden/failures/
 
 # Eclipse/JDT generated project settings
 **/.settings/
+
+# ── Local-only agent/tooling registries & internal planning ─────────────
+# AgentKit and other agent runtimes live on the developer machine only.
+# They must never reach the remote: they are not product source, may
+# embed machine-specific paths, and bloat history by thousands of files.
+/.agentkit/
+/.agents/
+/.codex/
+/.devin/
+/.claude/
+/.cursor/
+/.gemini/
+/.opencode/
+/.omp/
+/.grok/
+/.mimosa/
+/.playwright-mcp/
+/.video_agent/
+/.zcode/
+
+# Internal planning, specs, evidence packets and execution ledgers
+# (working documents, not a public deliverable).
+/plans/
+
+# Local scratch/patch artifacts
+/_*.py
