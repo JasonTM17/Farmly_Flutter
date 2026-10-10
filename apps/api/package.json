@@ -1,0 +1,88 @@
+{
+  "name": "@farmly/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.12.0 <25"
+  },
+  "overrides": {
+    "@better-auth/core": "1.7.6",
+    "chai": "6.2.2",
+    "exsolve": "1.1.1",
+    "magic-string": "1.4.2",
+    "pg-protocol": "1.16.0",
+    "pg": {
+      "pg-cloudflare": "1.4.0",
+      "pg-connection-string": "2.14.0"
+    },
+    "postcss": {
+      ".": "8.5.28",
+      "nanoid": "3.3.19",
+      "source-map-js": "1.2.1"
+    },
+    "rolldown": "1.2.11",
+    "vitest": {
+      "std-env": "4.2.0"
+    }
+  },
+  "scripts": {
+    "build": "prisma generate --schema prisma/schema.prisma && prisma generate --schema prisma/auth/schema.prisma && tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "start:dev": "tsx watch src/main.ts",
+    "migrate:auth": "node scripts/migrate-auth.mjs",
+    "migrate:tenant": "node scripts/migrate-tenant.mjs",
+    "migrate:rls": "node scripts/migrate-rls.mjs",
+    "migrate:organization-controls": "node scripts/migrate-organization-controls.mjs",
+    "migrate:mutation-kernel": "node scripts/migrate-mutation-kernel.mjs",
+    "migrate:farm-domain": "node scripts/migrate-farm-domain.mjs",
+    "migrate:farm-domain-guard": "node scripts/migrate-farm-domain-guard.mjs",
+    "test:unit": "vitest run test/unit",
+    "test:tenant-identity": "node test/integration/tenant-identity.mjs",
+    "test:contract": "vitest run test/contract",
+    "test:integration": "node scripts/qa-gate.mjs --gate integration",
+    "test:auth-postgres": "node test/integration/auth-postgres.mjs",
+    "test:organization-invitations": "node test/integration/organization-invitations.mjs",
+    "test:organization-memberships": "node test/integration/organization-memberships.mjs",
+    "test:mutation-kernel": "node test/integration/mutation-kernel.mjs",
+    "test:farm-domain": "node test/farm-domain/farm-domain.mjs",
+    "test:rls": "node test/integration/tenant-rls.mjs",
+    "test:farm-archive-barrier": "node test/integration/farm-archive-barrier.mjs",
+    "test:sync": "node scripts/qa-gate.mjs --gate sync",
+    "test:ai-protocol": "node scripts/qa-gate.mjs --gate ai-protocol",
+    "test:load": "node scripts/qa-gate.mjs --gate load",
+    "migrate:operational-facts": "node scripts/migrate-operational-facts.mjs",
+    "test:operational-facts": "node test/farm-domain/operational-facts.mjs",
+    "test:home-analytics-weather": "node test/farm-domain/home-analytics-weather.mjs",
+    "migrate:operational-facts-fixes": "node scripts/migrate-operational-facts-fixes.mjs",
+    "migrate:farm-location-weather": "node scripts/migrate-farm-location-weather.mjs",
+    "migrate:weather-refresh-targets": "node scripts/migrate-weather-refresh-targets.mjs",
+    "migrate:sync-bootstrap": "node scripts/migrate-sync-bootstrap.mjs",
+    "weather:refresh": "node scripts/refresh-weather.mjs",
+    "test:sync-bootstrap": "node test/farm-domain/sync-bootstrap.mjs"
+  },
+  "dependencies": {
+    "@better-auth/prisma-adapter": "1.7.6",
+    "@nestjs/common": "12.1.1",
+    "@nestjs/config": "12.0.1",
+    "@nestjs/core": "12.1.1",
+    "@nestjs/platform-express": "12.1.1",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "better-auth": "1.7.6",
+    "nodemailer": "10.0.12",
+    "pg": "8.23.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "12.1.1",
+    "@types/node": "24.12.4",
+    "prisma": "7.10.0",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vite": "8.3.1",
+    "vitest": "5.0.2"
+  }
+}

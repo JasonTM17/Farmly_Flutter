@@ -1,0 +1,16 @@
+FROM node:24.12.0-bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+COPY package*.json ./
+RUN npm ci --strict-peer-deps --no-audit --no-fund
+
+COPY . .
+RUN npm run build
+
+ENTRYPOINT ["node", "scripts/run-isolated.mjs", "--"]
+CMD ["npm", "run", "test:unit"]
