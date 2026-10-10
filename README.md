@@ -1,5 +1,11 @@
 # Farmly
 
+![Flutter](https://img.shields.io/badge/Flutter-%E2%89%A53.38-02569B?logo=flutter&logoColor=white)
+![Dart](https://img.shields.io/badge/Dart-%E2%89%A53.12-0175C2?logo=dart&logoColor=white)
+![NestJS](https://img.shields.io/badge/NestJS-API-E0234E?logo=nestjs&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17%20%2B%20RLS-4169E1?logo=postgresql&logoColor=white)
+![UI](https://img.shields.io/badge/UI-vi--VN-2E7D32)
+
 **Offline-first farm operations platform** — a Flutter mobile app backed by a
 multi-tenant NestJS + PostgreSQL API. Farmly lets cooperatives manage crops,
 livestock, water, tasks and harvests across organizations and farms — in the
@@ -32,28 +38,88 @@ field, with or without connectivity.
 - **Honest data** — every number carries provenance (sensor/manual/derived)
   and freshness; nothing is silently invented.
 
-## Architecture
+## System architecture
 
-```
-┌────────────────────────────────────────────────────────────┐
-│ apps/mobile — Flutter (Android/iOS), Riverpod, go_router   │
-│  · isometric Farm Explorer, 5-tab shell, vi-VN UI          │
-│  · drift/sqlite encrypted local store + outbox intents     │
-│  · sync engine: ordering, lost-ACK reconciliation, retry   │
-└──────────────────────────────┬─────────────────────────────┘
-                               │ versioned REST contracts
-┌──────────────────────────────┴─────────────────────────────┐
-│ apps/api — NestJS + Prisma + PostgreSQL                    │
-│  · Better Auth sessions, org/farm scope, invitations       │
-│  · RLS tenant isolation, mutation kernel, audit            │
-│  · farm domain, weather, notifications, privacy, AI        │
-└────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph MOBILE["apps/mobile — Flutter (Android / iOS)"]
+        UI["UI layer<br/>Farm Explorer · 5-tab shell · vi-VN"]
+        STATE["Riverpod providers<br/>auth · scope · demo/live data"]
+        OUTBOX["Encrypted outbox<br/>immutable write intents"]
+        SYNC["Sync engine<br/>ordering · lost-ACK · conflict"]
+        STORE[("Drift + SQLite<br/>key-store encryption")]
+        UI --> STATE
+        STATE --> OUTBOX --> SYNC
+        STATE --> STORE
+        SYNC --> STORE
+    end
 
-contracts/   versioned request/response schemas + generator
-infra/       docker-compose dev stack (PostgreSQL, Mailpit)
-tools/qa/    dependency-pin, secrets and preflight checkers
-plans/       phase plans, evidence packets, execution ledgers
+    subgraph API["apps/api — NestJS"]
+        AUTH["Better Auth<br/>sessions · invitations"]
+        KERNEL["Mutation kernel<br/>scope guards · audit"]
+        DOMAIN["Domain modules<br/>organizations · farm-domain<br/>identity · notifications · privacy"]
+        AISVC["AI dispatcher<br/>server-held credentials"]
+    end
+
+    subgraph DATA["PostgreSQL 17"]
+        RLS[("Tenant tables<br/>row-level security")]
+    end
+
+    CONTRACTS["contracts/<br/>versioned REST schemas"]
+    DEEPSEEK(["DeepSeek API<br/>deepseek-flash"])
+    MAILPIT["Mailpit<br/>dev mailbox"]
+
+    SYNC -- "REST over<br/>versioned contracts" --> KERNEL
+    UI -- "REST" --> AUTH
+    KERNEL --> AUTH --> RLS
+    KERNEL --> DOMAIN --> RLS
+    AISVC --> DEEPSEEK
+    DOMAIN --> MAILPIT
+    CONTRACTS -.-> MOBILE
+    CONTRACTS -.-> API
 ```
+
+## Offline-first sync
+
+Every field write is captured as an immutable intent in the device-side
+outbox — never lost on crash, kill, or connectivity drop. The sync engine
+replays intents dependency-aware, reconciles lost acknowledgements, and
+routes conflicts to the Sync Center for human resolution:
+
+```mermaid
+sequenceDiagram
+    participant U as Field user
+    participant App as Farmly app
+    participant OB as Encrypted outbox
+    participant SE as Sync engine
+    participant API as NestJS API
+    participant PG as PostgreSQL + RLS
+
+    U->>App: record fact (feeding, reading…)
+    App->>OB: append encrypted intent
+    App-->>U: optimistic local state
+    SE->>API: ordered batch over contract
+    API->>PG: apply under tenant RLS
+    API-->>SE: ack / conflict per op
+    alt ack
+        SE->>OB: mark synced
+    else conflict
+        SE->>OB: mark conflicted
+        SE-->>U: Sync Center resolution
+    end
+```
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `apps/mobile` | Flutter app — features, core (sync/storage/auth), goldens |
+| `apps/api` | NestJS API — modules, Prisma migrations, migration scripts |
+| `contracts` | Versioned request/response schemas + generator |
+| `infra` | Docker Compose dev stack (PostgreSQL 17, Mailpit) |
+| `tools/qa` | Dependency-pin, secrets and preflight checkers |
+| `plans` | Phase plans, evidence packets, execution ledgers |
+| `docs` | Screenshots and supporting documentation |
 
 ## Getting started
 
