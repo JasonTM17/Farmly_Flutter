@@ -238,8 +238,10 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                     builder: (context, phase) => Stack(
                       clipBehavior: Clip.none,
                       children: [
-                      const Positioned.fill(
-                        child: CustomPaint(painter: _IsoGroundPainter()),
+                      Positioned.fill(
+                        child: CustomPaint(
+                          painter: _IsoGroundPainter(phase: phase),
+                        ),
                       ),
                       // Painter order: iso rows back-to-front so nearer
                       // tiles overdraw further ones correctly.
@@ -370,7 +372,10 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
 
 /// Soft green base plane under the iso tiles (light grid of plot lines).
 class _IsoGroundPainter extends CustomPainter {
-  const _IsoGroundPainter();
+  const _IsoGroundPainter({this.phase = 0});
+
+  /// Ambient phase — edge trees sway a touch so the board feels alive.
+  final double phase;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -404,10 +409,75 @@ class _IsoGroundPainter extends CustomPainter {
         line,
       );
     }
+
+    // Winding dirt walkway down the board's centre gap — the reference map
+    // threads a path between the two plot columns.
+    final dirt = Paint()
+      ..color = Color.lerp(
+        FarmlyColors.semanticWarning,
+        FarmlyColors.surface,
+        0.35,
+      )!
+          .withValues(alpha: 0.5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size.width * 0.035
+      ..strokeCap = StrokeCap.round;
+    final path = Path()..moveTo(size.width * 0.5, size.height * 0.03);
+    for (var i = 0; i < 6; i++) {
+      final y = size.height * (0.03 + (i + 1) * 0.16);
+      final xOff = (i.isEven ? 1 : -1) * size.width * 0.015;
+      path.quadraticBezierTo(
+        size.width * 0.5 + xOff * 2,
+        size.height * (0.03 + i * 0.16 + 0.08),
+        size.width * 0.5 + xOff,
+        y,
+      );
+    }
+    canvas.drawPath(path, dirt);
+
+    // Decorative edge trees — canopy spheres with a trunk, leaning a couple
+    // of px on the ambient phase like the crop sway.
+    final trunk = Paint()
+      ..color = Color.lerp(
+        FarmlyColors.semanticWarning,
+        FarmlyColors.textPrimary,
+        0.45,
+      )!
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round;
+    final canopy = Paint()
+      ..color = Color.lerp(
+        FarmlyColors.brandAction,
+        FarmlyColors.brandSage,
+        0.3,
+      )!;
+    final spots = <Offset>[
+      Offset(size.width * 0.06, size.height * 0.12),
+      Offset(size.width * 0.94, size.height * 0.24),
+      Offset(size.width * 0.05, size.height * 0.52),
+      Offset(size.width * 0.95, size.height * 0.62),
+      Offset(size.width * 0.07, size.height * 0.88),
+    ];
+    for (var i = 0; i < spots.length; i++) {
+      final p0 = spots[i];
+      final sway = math.sin(phase * 2 * math.pi + i * 1.3) * 1.4;
+      canvas.drawLine(
+        Offset(p0.dx, p0.dy + 7),
+        Offset(p0.dx, p0.dy - 2),
+        trunk,
+      );
+      canvas.drawCircle(Offset(p0.dx + sway, p0.dy - 8), 8.5, canopy);
+      canvas.drawCircle(
+        Offset(p0.dx + sway - 2.5, p0.dy - 11),
+        3.4,
+        Paint()..color = FarmlyColors.surface.withValues(alpha: 0.4),
+      );
+    }
   }
 
   @override
-  bool shouldRepaint(_IsoGroundPainter oldDelegate) => false;
+  bool shouldRepaint(_IsoGroundPainter oldDelegate) =>
+      oldDelegate.phase != phase;
 }
 
 /// Pill label above each tile, like the reference zone tags.

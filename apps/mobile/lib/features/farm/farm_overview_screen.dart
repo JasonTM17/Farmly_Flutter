@@ -277,12 +277,31 @@ class _ZonePanel extends ConsumerWidget {
                     softWrap: true,
                   ),
                 ),
-                Text(
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: tokens.brandSage.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _zoneKindLabel(selectedZone.kind),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: tokens.textPrimary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: FarmSpacing.sm),
+                Flexible(
+                  child: Text(
                   selectedZone.subtitle ?? '',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
                     color: tokens.textSecondary,
                   ),
                   softWrap: true,
+                  ),
                 ),
               ],
             ),
