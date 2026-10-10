@@ -414,6 +414,9 @@ class AppLocalizationsVi extends AppLocalizations {
   }
 
   @override
+  String get quickStats => 'Số liệu nhanh';
+
+  @override
   String weatherSemantics(
     String condition,
     int temperature,

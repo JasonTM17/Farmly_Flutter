@@ -35,8 +35,18 @@ void main() {
     expect(find.textContaining('Chào'), findsWidgets);
     expect(find.byType(OperationsHealthRing), findsOneWidget);
     expect(find.byType(WeatherCard), findsOneWidget);
-    expect(find.byType(StatTile), findsNWidgets(4));
     expect(find.text('Trạng thái demo'), findsOneWidget);
+
+    // The quick-stats grid sits below the first viewport of the home list,
+    // so scroll to its heading before asserting (ListView builds children
+    // lazily; the grid rows materialize once the heading is in view).
+    expect(find.byType(Scrollable), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Số liệu nhanh'),
+      200,
+      scrollable: find.byType(Scrollable),
+    );
+    expect(find.byType(StatTile), findsNWidgets(4));
 
     // The AI CTA sits below the first viewport of the home list, so scroll to
     // it before asserting (ListView builds children lazily). Positive delta

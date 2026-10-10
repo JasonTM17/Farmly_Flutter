@@ -8,6 +8,7 @@ import '../../core/theme/farmly_theme_extension.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../ui/farm_card.dart';
 import '../../ui/farm_scaffold.dart';
+import '../../ui/illustrations.dart';
 import '../../ui/pickers.dart';
 import '../../ui/screen_states.dart';
 import '../../ui/summary_cards.dart';
@@ -56,51 +57,14 @@ class HomeScreen extends ConsumerWidget {
     final screenState = effectiveDemoState(ref, 'home', dataEmpty: farmIsEmpty);
 
     return FarmScaffold(
-      topBar: FarmTopBar(
-        title: useCompactHeader ? l10n.homeTab : greeting,
-        actions: [
-          Semantics(
-            button: true,
-            label: l10n.changeOrganization,
-            child: IconButton(
-              tooltip: l10n.changeOrganization,
-              icon: const Icon(Icons.swap_horiz_outlined),
-              onPressed: () => context.push(AppRoutes.organizations),
-            ),
-          ),
-          Semantics(
-            button: true,
-            label: l10n.openNotifications,
-            child: IconButton(
-              tooltip: l10n.notificationsTitle,
-              icon: const Icon(Icons.notifications_outlined),
-              onPressed: () => showNotificationsSheet(context),
-            ),
-          ),
-          Semantics(
-            button: true,
-            label: l10n.profileTab,
-            child: InkWell(
-              onTap: () => context.go(AppRoutes.profile),
-              customBorder: const CircleBorder(),
-              child: Container(
-                width: FarmSpacing.minTouchTarget,
-                height: FarmSpacing.minTouchTarget,
-                alignment: Alignment.center,
-                child: CircleAvatar(
-                  radius: 18,
-                  backgroundColor: FarmThemeExtension.of(context).brandAction,
-                  child: Text(
-                    (session?.name ?? 'F').characters.first.toUpperCase(),
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: FarmThemeExtension.of(context).onAction,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+      topBar: _HomeHeader(
+        greeting: useCompactHeader ? l10n.homeTab : greeting,
+        farmName: farm?.name ?? l10n.homeTab,
+        avatarInitial: (session?.name ?? 'F').characters.first.toUpperCase(),
+        onAvatarTap: () => context.go(AppRoutes.profile),
+        onFarmTap: () => showFarmPickerSheet(context),
+        onNotifications: () => showNotificationsSheet(context),
+        onChangeOrganization: () => context.push(AppRoutes.organizations),
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -159,6 +123,134 @@ class HomeScreen extends ConsumerWidget {
                 tasksTotal: tasksTotal,
               ),
             },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Reference home header: avatar on the left, greeting + farm picker row in
+/// the middle, notifications + organization actions on the right.
+class _HomeHeader extends StatelessWidget {
+  const _HomeHeader({
+    required this.greeting,
+    required this.farmName,
+    required this.avatarInitial,
+    required this.onAvatarTap,
+    required this.onFarmTap,
+    required this.onNotifications,
+    required this.onChangeOrganization,
+  });
+
+  final String greeting;
+  final String farmName;
+  final String avatarInitial;
+  final VoidCallback onAvatarTap;
+  final VoidCallback onFarmTap;
+  final VoidCallback onNotifications;
+  final VoidCallback onChangeOrganization;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        FarmSpacing.lg,
+        FarmSpacing.lg,
+        FarmSpacing.lg,
+        FarmSpacing.sm,
+      ),
+      child: Row(
+        children: [
+          Semantics(
+            button: true,
+            label: l10n.profileTab,
+            child: InkWell(
+              onTap: onAvatarTap,
+              customBorder: const CircleBorder(),
+              child: Container(
+                width: FarmSpacing.minTouchTarget,
+                height: FarmSpacing.minTouchTarget,
+                alignment: Alignment.center,
+                child: CircleAvatar(
+                  radius: 20,
+                  backgroundColor: tokens.brandAction,
+                  child: Text(
+                    avatarInitial,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelLarge?.copyWith(color: tokens.onAction),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: FarmSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  greeting,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: tokens.textSecondary,
+                  ),
+                ),
+                Semantics(
+                  button: true,
+                  label: l10n.farmPickerTitle,
+                  child: InkWell(
+                    onTap: onFarmTap,
+                    borderRadius: BorderRadius.circular(FarmSpacing.sm),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: FarmSpacing.xs,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              farmName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          Icon(
+                            Icons.expand_more,
+                            size: 20,
+                            color: tokens.textSecondary,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Semantics(
+            button: true,
+            label: l10n.changeOrganization,
+            child: IconButton(
+              tooltip: l10n.changeOrganization,
+              icon: const Icon(Icons.swap_horiz_outlined),
+              onPressed: onChangeOrganization,
+            ),
+          ),
+          Semantics(
+            button: true,
+            label: l10n.openNotifications,
+            child: IconButton(
+              tooltip: l10n.notificationsTitle,
+              icon: const Icon(Icons.notifications_outlined),
+              onPressed: onNotifications,
+            ),
           ),
         ],
       ),
@@ -256,16 +348,47 @@ class _HomeContent extends ConsumerWidget {
           ),
           const SizedBox(height: FarmSpacing.md),
         ],
-        OperationsHealthRing(value: operationsHealthOf(state)),
-        const SizedBox(height: FarmSpacing.md),
-        // D-15: render only a real cached snapshot — when the provider has
-        // never produced one for this farm the card says so instead of
-        // inventing a sunny reading.
-        _WeatherSection(
-          snapshot: weatherOfFarm(state, farmId),
-          offline: screenState == DemoLoadState.offline,
+        // Illustrated farm banner above the summary row (reference home).
+        const SizedBox(
+          height: 150,
+          child: ExcludeSemantics(
+            child: ClipRRect(
+              borderRadius: BorderRadius.all(
+                Radius.circular(FarmSpacing.cardRadius),
+              ),
+              child: CustomPaint(
+                painter: FarmScenePainter(),
+                size: Size.infinite,
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: FarmSpacing.md),
+        // Health + weather sit side by side, like the reference home.
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: OperationsHealthRing(value: operationsHealthOf(state)),
+            ),
+            const SizedBox(width: FarmSpacing.md),
+            // D-15: render only a real cached snapshot — when the provider
+            // has never produced one for this farm the card says so instead
+            // of inventing a sunny reading.
+            Expanded(
+              child: _WeatherSection(
+                snapshot: weatherOfFarm(state, farmId),
+                offline: screenState == DemoLoadState.offline,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: FarmSpacing.lg),
+        Text(
+          l10n.quickStats,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: FarmSpacing.sm),
         // Static 2x2 stat rows: the home tab must expose a single scroll
         // surface, and a shrink-wrapped GridView nested in this ListView
         // would add a second Scrollable node to the tree.

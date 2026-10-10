@@ -409,6 +409,9 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get quickStats => 'Quick stats';
+
+  @override
   String weatherSemantics(
     String condition,
     int temperature,

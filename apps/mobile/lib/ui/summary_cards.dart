@@ -27,26 +27,11 @@ class OperationsHealthRing extends StatelessWidget {
       container: true,
       label: semantics,
       child: FarmCard(
+        // Reference layout: title + status copy on the left, ring on the
+        // right — the card lives in a half-width row next to weather.
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox.square(
-              dimension: 108,
-              child: CustomPaint(
-                painter: _HealthRingPainter(
-                  value: value,
-                  track: tokens.brandSage,
-                  arc: tokens.brandAction,
-                  ink: tokens.textPrimary,
-                ),
-                child: Center(
-                  child: Text(
-                    percentText,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: FarmSpacing.lg),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -67,6 +52,24 @@ class OperationsHealthRing extends StatelessWidget {
                     softWrap: true,
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(width: FarmSpacing.md),
+            SizedBox.square(
+              dimension: 72,
+              child: CustomPaint(
+                painter: _HealthRingPainter(
+                  value: value,
+                  track: tokens.brandSage,
+                  arc: tokens.brandAction,
+                  ink: tokens.textPrimary,
+                ),
+                child: Center(
+                  child: Text(
+                    percentText,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
               ),
             ),
           ],
@@ -93,10 +96,11 @@ class _HealthRingPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.shortestSide / 2 - 6;
+    final strokeWidth = size.shortestSide * 0.1;
     final trackPaint = Paint()
       ..color = track
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 10
+      ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
     canvas.drawCircle(center, radius, trackPaint);
 
@@ -106,7 +110,7 @@ class _HealthRingPainter extends CustomPainter {
       final dash = Paint()
         ..color = ink
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 6
+        ..strokeWidth = strokeWidth * 0.6
         ..strokeCap = StrokeCap.round;
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius),
@@ -120,7 +124,7 @@ class _HealthRingPainter extends CustomPainter {
     final arcPaint = Paint()
       ..color = arc
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 10
+      ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
@@ -172,61 +176,50 @@ class WeatherCard extends StatelessWidget {
         asOf,
       ),
       child: FarmCard(
+        // Reference layout: sun icon top-right, big temperature + condition
+        // on the left, humidity/wind pair below — half of the two-card row.
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.wb_sunny_outlined,
-                  size: 40,
-                  color: tokens.illustrationBarn,
-                ),
-                const SizedBox(width: FarmSpacing.lg),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '$temperatureC°C',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                    Text(
-                      conditionLabel,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: tokens.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-                const Spacer(),
-                // Bounded so a longer localized humidity/wind label wraps
-                // instead of overflowing the card (spec 02 §8 small widths).
-                Flexible(
+                Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        l10n.weatherHumidity(humidityPercent),
-                        style: Theme.of(context).textTheme.bodySmall,
-                        textAlign: TextAlign.end,
-                        softWrap: true,
+                        '$temperatureC°C',
+                        style: Theme.of(context).textTheme.headlineMedium,
                       ),
-                      const SizedBox(height: FarmSpacing.xs),
                       Text(
-                        windLabel,
-                        style: Theme.of(context).textTheme.bodySmall,
-                        textAlign: TextAlign.end,
+                        conditionLabel,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: tokens.textSecondary,
+                        ),
                         softWrap: true,
                       ),
                     ],
                   ),
                 ),
+                Icon(
+                  Icons.wb_sunny_outlined,
+                  size: 32,
+                  color: tokens.illustrationBarn,
+                ),
               ],
             ),
             const SizedBox(height: FarmSpacing.sm),
-            AsOfLabel(
-              asOf: asOf,
-              source: offline ? l10n.savedDataSource : l10n.todayForecastSource,
+            Text(
+              l10n.weatherHumidity(humidityPercent),
+              style: Theme.of(context).textTheme.bodySmall,
+              softWrap: true,
+            ),
+            const SizedBox(height: FarmSpacing.xs),
+            Text(
+              windLabel,
+              style: Theme.of(context).textTheme.bodySmall,
+              softWrap: true,
             ),
           ],
         ),

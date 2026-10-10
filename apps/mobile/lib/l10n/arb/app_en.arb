@@ -131,6 +131,7 @@
   "weatherSunny": "Sunny",
   "windLight": "Light wind",
   "weatherHumidity": "Humidity {humidity}%",
+  "quickStats": "Quick stats",
   "@weatherHumidity": { "placeholders": { "humidity": { "type": "int" } } },
   "weatherSemantics": "{condition}, {temperature} degrees C, humidity {humidity}%, {wind}; {source} {asOf}.",
   "@weatherSemantics": { "placeholders": { "condition": { "type": "String" }, "temperature": { "type": "int" }, "humidity": { "type": "int" }, "wind": { "type": "String" }, "source": { "type": "String" }, "asOf": { "type": "String" } } },

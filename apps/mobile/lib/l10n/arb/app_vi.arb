@@ -131,6 +131,7 @@
   "weatherSunny": "Trời nắng",
   "windLight": "Gió nhẹ",
   "weatherHumidity": "Độ ẩm {humidity}%",
+  "quickStats": "Số liệu nhanh",
   "@weatherHumidity": { "placeholders": { "humidity": { "type": "int" } } },
   "weatherSemantics": "{condition}, {temperature} độ C, độ ẩm {humidity}%, {wind}; {source} {asOf}.",
   "@weatherSemantics": { "placeholders": { "condition": { "type": "String" }, "temperature": { "type": "int" }, "humidity": { "type": "int" }, "wind": { "type": "String" }, "source": { "type": "String" }, "asOf": { "type": "String" } } },

@@ -794,6 +794,12 @@ abstract class AppLocalizations {
   /// **'Humidity {humidity}%'**
   String weatherHumidity(int humidity);
 
+  /// No description provided for @quickStats.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick stats'**
+  String get quickStats;
+
   /// No description provided for @weatherSemantics.
   ///
   /// In en, this message translates to:
