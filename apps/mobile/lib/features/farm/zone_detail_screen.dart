@@ -6,7 +6,7 @@ import '../../core/theme/farmly_spacing.dart';
 import '../../core/theme/farmly_theme_extension.dart';
 import '../../ui/farm_card.dart';
 import '../../ui/form_fields.dart';
-import '../../ui/illustrations.dart';
+import '../../ui/zone_explorer.dart';
 import '../../ui/pickers.dart';
 import '../../ui/screen_states.dart';
 import '../app/app_router.dart';
@@ -93,20 +93,35 @@ class ZoneDetailScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: FarmSpacing.md),
               ],
-              FarmIllustration(
-                painter: switch (zone?.kind) {
-                  DemoZoneKind.water => const WaterTankPainter(),
-                  DemoZoneKind.livestock => AnimalPortraitPainter(
-                    category:
-                        herdsOfFarm(state, state.selectedFarmId)
-                            .firstOrNull
-                            ?.category ??
-                        DemoAnimalCategory.chickens,
+              // Iso tile hero — the same tile the map renders, zoomed.
+              if (zone != null)
+                ExcludeSemantics(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(FarmSpacing.cardRadius),
+                    child: Container(
+                      height: 190,
+                      color: Color.lerp(
+                        FarmThemeExtension.of(context).brandSage,
+                        FarmThemeExtension.of(context).background,
+                        0.55,
+                      ),
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.only(top: FarmSpacing.lg),
+                      child: SizedBox(
+                        width: 240,
+                        height: 150,
+                        child: CustomPaint(
+                          painter: IsoZoneTilePainter(
+                            kind: zone.kind,
+                            selected: false,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
-                  _ => const BedPainter(),
-                },
-                aspectRatio: 2.2,
-              ),
+                ),
+              const SizedBox(height: FarmSpacing.md),
+              if (zone != null) _ZoneSummaryCard(zone: zone, crops: crops),
               const SizedBox(height: FarmSpacing.md),
               if (zone?.kind == DemoZoneKind.water) ...[
                 _WaterTankSection(
@@ -1173,6 +1188,114 @@ class _MoistureDialogState extends State<_MoistureDialog> {
         ),
         FilledButton(onPressed: _save, child: const Text('Lưu số đo')),
       ],
+    );
+  }
+}
+
+/// Zone summary card under the hero (reference zone detail): kind icon +
+/// name + crop species, with the mean growth progress of tracked crops.
+class _ZoneSummaryCard extends StatelessWidget {
+  const _ZoneSummaryCard({required this.zone, required this.crops});
+
+  final DemoZone zone;
+  final List<DemoCrop> crops;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FarmThemeExtension.of(context);
+    final tracked =
+        crops.where((crop) => crop.manualProgressPercent != null).toList();
+    final mean = tracked.isEmpty
+        ? null
+        : tracked.fold<int>(
+                0,
+                (sum, crop) => sum + crop.manualProgressPercent!,
+              ) /
+              tracked.length;
+    final speciesList = crops.map((crop) => crop.species).join(' + ');
+    return FarmCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: tokens.brandSage.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  switch (zone.kind) {
+                    DemoZoneKind.crop => Icons.grass,
+                    DemoZoneKind.livestock => Icons.pets,
+                    DemoZoneKind.water => Icons.water_drop,
+                    DemoZoneKind.storage => Icons.warehouse,
+                    DemoZoneKind.house => Icons.home,
+                  },
+                  color: tokens.brandAction,
+                ),
+              ),
+              const SizedBox(width: FarmSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      zone.name,
+                      style: Theme.of(context).textTheme.titleMedium,
+                      softWrap: true,
+                    ),
+                    if (speciesList.isNotEmpty)
+                      Text(
+                        'Cây trồng: $speciesList',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: tokens.textSecondary,
+                        ),
+                        softWrap: true,
+                      )
+                    else if (zone.subtitle != null)
+                      Text(
+                        zone.subtitle!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: tokens.textSecondary,
+                        ),
+                        softWrap: true,
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (mean != null) ...[
+            const SizedBox(height: FarmSpacing.md),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Tăng trưởng',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                Text(
+                  '${mean.round()}%',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+              ],
+            ),
+            const SizedBox(height: FarmSpacing.xs),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: mean / 100,
+                minHeight: 8,
+                backgroundColor: tokens.brandSage.withValues(alpha: 0.35),
+                valueColor: AlwaysStoppedAnimation(tokens.brandAction),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
