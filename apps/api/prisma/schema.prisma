@@ -1,0 +1,170 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model FarmlySchemaScaffold {
+  id String @id @default(uuid()) @db.Uuid
+
+  @@map("_farmly_schema_scaffold")
+}
+
+enum OrganizationStatus {
+  active
+  archived
+
+  @@map("organization_status")
+}
+
+enum OrganizationRole {
+  owner
+  admin
+  member
+  viewer
+
+  @@map("organization_role")
+}
+
+enum MembershipStatus {
+  active
+  suspended
+  removed
+
+  @@map("membership_status")
+}
+
+enum FarmStatus {
+  active
+  archived
+
+  @@map("farm_status")
+}
+
+enum FarmGrantRole {
+  manager
+  worker
+  viewer
+
+  @@map("farm_grant_role")
+}
+
+model Organization {
+  id            String                 @id @default(uuid()) @db.Uuid
+  name          String                 @db.VarChar(160)
+  status        OrganizationStatus     @default(active)
+  policyVersion BigInt                 @default(1) @map("policy_version")
+  continuityEpoch BigInt               @default(1) @map("continuity_epoch")
+  createdAt     DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships   OrganizationMembership[]
+  farms          Farm[]
+  invitations    OrganizationInvitation[]
+  creationReceipt OrganizationCreationReceipt?
+
+  @@map("organizations")
+}
+
+model OrganizationMembership {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  userId         String             @map("user_id") @db.Text
+  role           OrganizationRole   @default(member)
+  status         MembershipStatus   @default(active)
+  version        Int                @default(1)
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  farmGrants     FarmGrant[]
+
+  @@unique([organizationId, userId])
+  @@unique([organizationId, id])
+  @@index([userId, status])
+  @@map("organization_memberships")
+}
+
+model Farm {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  name           String             @db.VarChar(160)
+  areaM2         Decimal?           @map("area_m2") @db.Decimal(14, 2)
+  timezone       String             @db.VarChar(64)
+  status         FarmStatus         @default(active)
+  version        Int                @default(1)
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  grants         FarmGrant[]
+  invitationGrants InvitationFarmGrant[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, status])
+  @@map("farms")
+}
+
+model FarmGrant {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  membershipId   String             @map("membership_id") @db.Uuid
+  farmId         String             @map("farm_id") @db.Uuid
+  role           FarmGrantRole
+  version        Int                @default(1)
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  membership     OrganizationMembership @relation(fields: [organizationId, membershipId], references: [organizationId, id], onDelete: Cascade)
+  farm           Farm               @relation(fields: [organizationId, farmId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, membershipId, farmId])
+  @@map("farm_grants")
+}
+
+model OrganizationInvitation {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  operationId    String             @map("operation_id") @db.Uuid
+  emailHash      String             @map("email_hash") @db.Char(64)
+  tokenHash      String             @unique @map("token_hash") @db.Char(64)
+  role           OrganizationRole
+  createdByUserId String            @map("created_by_user_id") @db.Text
+  expiresAt      DateTime           @map("expires_at") @db.Timestamptz(6)
+  acceptedAt     DateTime?          @map("accepted_at") @db.Timestamptz(6)
+  acceptedByUserId String?          @map("accepted_by_user_id") @db.Text
+  acceptOperationId String?         @map("accept_operation_id") @db.Uuid
+  revokedAt      DateTime?          @map("revoked_at") @db.Timestamptz(6)
+  revokedByUserId String?           @map("revoked_by_user_id") @db.Text
+  revokeOperationId String?         @map("revoke_operation_id") @db.Uuid
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  farmGrants     InvitationFarmGrant[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, createdByUserId, operationId])
+  @@index([organizationId, expiresAt])
+  @@map("organization_invitations")
+}
+
+model InvitationFarmGrant {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  invitationId   String             @map("invitation_id") @db.Uuid
+  farmId         String             @map("farm_id") @db.Uuid
+  role           FarmGrantRole
+  invitation     OrganizationInvitation @relation(fields: [organizationId, invitationId], references: [organizationId, id], onDelete: Cascade)
+  farm           Farm               @relation(fields: [organizationId, farmId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, invitationId, farmId])
+  @@map("invitation_farm_grants")
+}
+
+model OrganizationCreationReceipt {
+  actorId        String       @map("actor_id") @db.Text
+  requestId      String       @map("request_id") @db.Uuid
+  organizationId String       @unique @map("organization_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([actorId, requestId])
+  @@map("organization_creation_receipts")
+}
