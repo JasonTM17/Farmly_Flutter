@@ -48,7 +48,7 @@ void main() {
 
   Widget explorerHarness({
     String? selectedId,
-    ValueChanged<String>? onSelect,
+    ValueChanged<String?>? onSelect,
     ValueChanged<DemoZone>? onOpenDetail,
   }) {
     return MaterialApp(
@@ -65,7 +65,7 @@ void main() {
               child: ZoneScene(
                 zones: zones,
                 selectedZoneId: selectedId,
-                onSelect: onSelect ?? (_) {},
+                onSelect: (id) => onSelect?.call(id),
                 onOpenDetail: onOpenDetail ?? (_) {},
               ),
             ),
@@ -91,7 +91,12 @@ void main() {
       );
     }
 
-    await tester.tap(find.text(zones[1].name));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(ZoneChipStrip),
+        matching: find.text(zones[1].name),
+      ),
+    );
     await tester.pump();
     expect(selected, zones[1].id);
   });
@@ -110,11 +115,7 @@ void main() {
     String? selected;
     await tester.pumpWidget(explorerHarness(onSelect: (id) => selected = id));
 
-    final hotspotInk = find.descendant(
-      of: hotspotOf(zones[1].name),
-      matching: find.byType(InkWell),
-    );
-    await tester.tap(hotspotInk);
+    await tester.tap(hotspotOf(zones[1].name));
     // InkWell defers onTap until the double-tap timeout (~300ms) elapses.
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();

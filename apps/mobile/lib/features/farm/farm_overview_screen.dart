@@ -34,8 +34,12 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
       _selectedZoneId = null;
       return;
     }
-    final stillThere = zones.any((zone) => zone.id == _selectedZoneId);
-    if (!stillThere) _selectedZoneId = zones.first.id;
+    // Null selection is the reference "Overview" state — only repair a
+    // stale non-null id, never force a zone when the user picked overview.
+    if (_selectedZoneId != null &&
+        !zones.any((zone) => zone.id == _selectedZoneId)) {
+      _selectedZoneId = zones.first.id;
+    }
   }
 
   Future<void> _openCreateZoneSheet(
@@ -143,6 +147,7 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
                   ZoneChipStrip(
                     zones: zones,
                     selectedZoneId: _selectedZoneId,
+                    overviewLabel: 'Tổng quan',
                     onSelect: (zoneId) =>
                         setState(() => _selectedZoneId = zoneId),
                   ),
@@ -161,7 +166,37 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: FarmSpacing.md),
+                  const SizedBox(height: FarmSpacing.sm),
+                  // Reference hint bar: counts of what the map contains.
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: FarmSpacing.lg,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.touch_app_outlined,
+                          size: 18,
+                          color: FarmThemeExtension.of(context).textSecondary,
+                        ),
+                        const SizedBox(width: FarmSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            'Chạm vào một vùng để khám phá · '
+                            '${zones.length} vùng · ${animals.length} con vật',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: FarmThemeExtension.of(
+                                    context,
+                                  ).textSecondary,
+                                ),
+                            softWrap: true,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: FarmSpacing.sm),
                   AnimatedSwitcher(
                     duration: context.farmZoneZoomDuration(),
                     child: _ZonePanel(
@@ -178,7 +213,7 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
                       FarmSpacing.sm,
                     ),
                     child: Text(
-                      'Danh sách vùng',
+                      'Khám phá',
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),

@@ -49,3 +49,4 @@ Desktop.ini
 apps/mobile/.platform-scaffold-temp/
 /nul
 apps/mobile/nul
+apps/mobile/test/golden/failures/
