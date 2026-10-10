@@ -27,6 +27,7 @@
     }
   },
   "scripts": {
+    "postinstall": "prisma generate --schema prisma/schema.prisma && prisma generate --schema prisma/auth/schema.prisma",
     "build": "prisma generate --schema prisma/schema.prisma && prisma generate --schema prisma/auth/schema.prisma && tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "start:dev": "tsx watch src/main.ts",

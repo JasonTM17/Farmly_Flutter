@@ -82,3 +82,9 @@ apps/mobile/test/golden/failures/
 # Scratch patch/case scripts (one-off migration patchers, machine paths)
 **/_p[0-9]*
 /.zcodeignore
+
+# Generated code (recreated by `npm run build` / postinstall prisma generate)
+/apps/api/generated/
+
+# One-off debug scripts
+**/_dbg*
