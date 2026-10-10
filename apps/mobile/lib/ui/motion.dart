@@ -9,27 +9,39 @@ class FarmEntrance extends StatelessWidget {
   const FarmEntrance({
     required this.child,
     this.delay = Duration.zero,
+    this.pop = false,
     super.key,
   });
 
   final Widget child;
   final Duration delay;
 
+  /// Pop entrances scale up from 55% with an overshoot curve — used for map
+  /// tiles and cards that should land with a bounce rather than fade in.
+  final bool pop;
+
   @override
   Widget build(BuildContext context) {
     if (context.farmReducedMotion()) return child;
-    final total = FarmSpacing.entrance + delay;
+    final total = FarmSpacing.entrance * (pop ? 1.6 : 1) + delay;
     final beginAt = delay.inMicroseconds / total.inMicroseconds;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: total,
-      curve: Interval(beginAt, 1, curve: Curves.easeOutCubic),
+      curve: Interval(
+        beginAt,
+        1,
+        curve: pop ? Curves.easeOutBack : Curves.easeOutCubic,
+      ),
       child: child,
       builder: (context, value, child) => Opacity(
-        opacity: value,
+        opacity: value.clamp(0.0, 1.0),
         child: Transform.translate(
-          offset: Offset(0, 12 * (1 - value)),
-          child: child,
+          offset: Offset(0, (pop ? 26 : 12) * (1 - value)),
+          child: Transform.scale(
+            scale: pop ? 0.55 + 0.45 * value : 1,
+            child: child,
+          ),
         ),
       ),
     );

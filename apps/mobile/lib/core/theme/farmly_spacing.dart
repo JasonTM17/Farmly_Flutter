@@ -25,11 +25,15 @@ abstract final class FarmSpacing {
   /// Zone zoom / shared element transition, bounded.
   static const Duration zoneZoom = Duration(milliseconds: 300);
 
+  /// Camera flight into a map tile — deliberately slower than [zoneZoom] so
+  /// the dive feels cinematic (reference demo behavior).
+  static const Duration cameraFlight = Duration(milliseconds: 560);
+
   /// Screen/element entrance — fade + short rise.
   static const Duration entrance = Duration(milliseconds: 350);
 
   /// Ambient loop period (cloud drift, water ripple) — slow and subtle.
-  static const Duration ambient = Duration(seconds: 9);
+  static const Duration ambient = Duration(seconds: 6);
 }
 
 /// Motion helpers honoring the platform reduced-motion setting: durations
@@ -45,4 +49,7 @@ extension FarmMotionContext on BuildContext {
 
   Duration farmZoneZoomDuration() =>
       farmReducedMotion() ? Duration.zero : FarmSpacing.zoneZoom;
+
+  Duration farmCameraFlightDuration() =>
+      farmReducedMotion() ? Duration.zero : FarmSpacing.cameraFlight;
 }

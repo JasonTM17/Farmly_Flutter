@@ -56,7 +56,7 @@ class FarmScenePainter extends CustomPainter {
     // Phase 0 reproduces the static reference layout exactly (goldens stay
     // stable); drift moves clouds right, wrapping past the right edge.
     double wrapX(double base) {
-      final x = base + phase * w * 0.14;
+      final x = base + phase * w * 0.22;
       return x > w * 1.15 ? x - w * 1.35 : x;
     }
 

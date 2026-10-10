@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../core/theme/farmly_colors.dart';
@@ -135,7 +137,7 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
     _zoomController?.dispose();
     final controller = AnimationController(
       vsync: this,
-      duration: context.farmZoneZoomDuration(),
+      duration: context.farmCameraFlightDuration(),
     );
     _zoomController = controller;
     final animation = Matrix4Tween(
@@ -148,26 +150,38 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
 
   void _resetView() => _animateTo(Matrix4.identity());
 
-  /// Tile footprint in logical px — the isometric diamond is 2:1.
-  static const double _tileW = 132;
-  static const double _tileH = 66;
-  static const double _tileDepth = 10;
+  /// Plot tiles are chunky rounded squares (~42% of map width) on a loose
+  /// two-column grid — the reference map's board-game layout.
+  static double _tileW(Size canvas) => canvas.width * 0.42;
+  static double _tileH(Size canvas) => _tileW(canvas) * 0.72;
 
-  /// Zone.x/y (0..1) are treated as normalized grid coordinates and projected
-  /// to isometric screen space. Returns the tile's top-face center offset.
-  Offset _isoCenter(DemoZone zone, Size canvas) {
-    final gx = zone.x * 2;
-    final gy = zone.y * 2;
-    final px = (gx - gy) * _tileW * 0.88;
-    final py = (gx + gy) * _tileH * 0.72;
-    return Offset(canvas.width / 2 + px, canvas.height * 0.26 + py);
+  /// Painter order, back row first so nearer plots overdraw correctly.
+  List<DemoZone> get _ordered => widget.zones.toList()
+    ..sort((a, b) => (a.x + a.y).compareTo(b.x + b.y));
+
+  int _cellIndex(DemoZone zone) =>
+      _ordered.indexWhere((z) => z.id == zone.id);
+
+  /// Grid cell center with a small per-zone jitter so the grid reads organic
+  /// rather than rigid.
+  Offset _tileCenter(DemoZone zone, int index, Size canvas) {
+    final col = index % 2;
+    final row = index ~/ 2;
+    final jx = (zone.x - 0.5) * canvas.width * 0.05;
+    final jy = (zone.y - 0.5) * canvas.height * 0.05;
+    return Offset(
+      canvas.width * (0.28 + col * 0.44) + jx,
+      canvas.height * (0.3 + row * 0.48) + jy,
+    );
   }
 
   void _focusZone(DemoZone zone) {
     final viewport = _viewerKey.currentContext?.size;
     if (viewport == null) return;
-    const scale = 1.9;
-    final center = _isoCenter(zone, viewport);
+    // Deep, slow flight into the tapped plot — the reference's signature
+    // "camera dives into the tile" feel.
+    const scale = 2.4;
+    final center = _tileCenter(zone, _cellIndex(zone), viewport);
     final dx = viewport.width / 2 - center.dx * scale;
     final dy = viewport.height / 2 - center.dy * scale;
     _animateTo(
@@ -208,22 +222,18 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                       ),
                       // Painter order: iso rows back-to-front so nearer
                       // tiles overdraw further ones correctly.
-                      for (final (tileIndex, zone) in (widget.zones.toList()
-                            ..sort((a, b) => (a.x + a.y).compareTo(b.x + b.y)))
-                          .indexed)
+                      for (final (tileIndex, zone) in _ordered.indexed)
                         () {
-                          final center = _isoCenter(zone, canvas);
+                          final center = _tileCenter(zone, tileIndex, canvas);
                           final selected =
                               zone.id == widget.selectedZoneId;
+                          final tw = _tileW(canvas);
+                          final th = _tileH(canvas);
                           return Positioned(
-                            left: center.dx - _tileW / 2,
-                            top:
-                                center.dy -
-                                _tileH / 2 -
-                                _tileDepth -
-                                (selected ? 8 : 0),
-                            width: _tileW,
-                            height: _tileH + _tileDepth + 30,
+                            left: center.dx - tw / 2,
+                            top: center.dy - th / 2 - 26 - (selected ? 6 : 0),
+                            width: tw,
+                            height: th + 26,
                             child: Semantics(
                               button: true,
                               selected: selected,
@@ -239,8 +249,9 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                                 onDoubleTap: () =>
                                     widget.onOpenDetail(zone),
                                 child: FarmEntrance(
+                                  pop: true,
                                   delay: Duration(
-                                    milliseconds: 70 * tileIndex,
+                                    milliseconds: 90 * tileIndex,
                                   ),
                                   child: Column(
                                     mainAxisSize: MainAxisSize.min,
@@ -251,8 +262,8 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                                       ),
                                       const SizedBox(height: 2),
                                       SizedBox(
-                                        width: _tileW,
-                                        height: _tileH + _tileDepth,
+                                        width: tw,
+                                        height: th,
                                         child: CustomPaint(
                                           painter: IsoZoneTilePainter(
                                             kind: zone.kind,
@@ -392,61 +403,42 @@ class IsoZoneTilePainter extends CustomPainter {
   final DemoZoneKind kind;
   final bool selected;
 
-  /// Ambient phase 0..1 — currently drives the pond ripple cycle.
+  /// Ambient phase 0..1 — pond ripples expand, pasture animals bob.
   final double phase;
-
-  static Path _diamond(double w, double h) => Path()
-    ..moveTo(w / 2, 0)
-    ..lineTo(w, h / 2)
-    ..lineTo(w / 2, h)
-    ..lineTo(0, h / 2)
-    ..close();
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
-    final h = size.height - _ZoneSceneState._tileDepth;
-    final depth = _ZoneSceneState._tileDepth;
+    final h = size.height - 8;
+    final tile = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, 0, w, h),
+      const Radius.circular(16),
+    );
 
-    final top = _diamond(w, h);
-    final leftWall = Path()
-      ..moveTo(0, h / 2)
-      ..lineTo(w / 2, h)
-      ..lineTo(w / 2, h + depth)
-      ..lineTo(0, h / 2 + depth)
-      ..close();
-    final rightWall = Path()
-      ..moveTo(w, h / 2)
-      ..lineTo(w / 2, h)
-      ..lineTo(w / 2, h + depth)
-      ..lineTo(w, h / 2 + depth)
-      ..close();
+    // Soft ground shadow under the plot.
+    canvas.drawRRect(
+      tile.shift(const Offset(0, 7)),
+      Paint()
+        ..color = FarmlyColors.textPrimary.withValues(alpha: 0.14)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+    );
 
     final base = _baseColor();
-    canvas.drawPath(
-      leftWall,
-      Paint()..color = Color.lerp(base, FarmlyColors.textPrimary, 0.3)!,
-    );
-    canvas.drawPath(
-      rightWall,
-      Paint()..color = Color.lerp(base, FarmlyColors.textPrimary, 0.45)!,
-    );
-    canvas.drawPath(top, Paint()..color = base);
+    canvas.drawRRect(tile, Paint()..color = base);
 
     canvas.save();
-    canvas.clipPath(top);
+    canvas.clipRRect(tile);
     _paintInterior(canvas, w, h);
     canvas.restore();
 
-    // Rim — the selected tile gets a thicker action-colored edge.
-    canvas.drawPath(
-      top,
+    canvas.drawRRect(
+      tile,
       Paint()
         ..color = selected
             ? FarmlyColors.brandAction
-            : Color.lerp(base, FarmlyColors.textPrimary, 0.25)!
+            : Color.lerp(base, FarmlyColors.textPrimary, 0.28)!
         ..style = PaintingStyle.stroke
-        ..strokeWidth = selected ? 3 : 1.5,
+        ..strokeWidth = selected ? 3.2 : 1.6,
     );
   }
 
@@ -454,17 +446,17 @@ class IsoZoneTilePainter extends CustomPainter {
     DemoZoneKind.crop => Color.lerp(
       FarmlyColors.semanticWarning,
       FarmlyColors.background,
-      0.55,
+      0.52,
     )!,
     DemoZoneKind.livestock => Color.lerp(
       FarmlyColors.brandSage,
       FarmlyColors.surface,
-      0.25,
+      0.28,
     )!,
     DemoZoneKind.water => Color.lerp(
-      FarmlyColors.illustrationWater,
+      FarmlyColors.brandSage,
       FarmlyColors.surface,
-      0.3,
+      0.45,
     )!,
     DemoZoneKind.storage || DemoZoneKind.house => Color.lerp(
       FarmlyColors.brandSage,
@@ -476,104 +468,121 @@ class IsoZoneTilePainter extends CustomPainter {
   void _paintInterior(Canvas canvas, double w, double h) {
     switch (kind) {
       case DemoZoneKind.crop:
-        // Ploughed rows of small plant dots, like the reference field tiles.
-        final rowPaint = Paint()
+        // Furrows + tidy rows of plant dots, like the reference field plots.
+        final furrow = Paint()
           ..color = Color.lerp(
             FarmlyColors.semanticWarning,
             FarmlyColors.textPrimary,
             0.3,
           )!
-          ..strokeWidth = 2
+          ..strokeWidth = 3
           ..strokeCap = StrokeCap.round;
         final plant = Paint()..color = FarmlyColors.brandAction;
-        for (var r = 0; r < 3; r++) {
-          final y = h * (0.3 + r * 0.2);
-          final inset = (h / 2 - (y - h / 2).abs()) / (h / 2);
-          final x0 = w / 2 - (w / 2) * inset * 0.72;
-          final x1 = w / 2 + (w / 2) * inset * 0.72;
-          canvas.drawLine(Offset(x0, y), Offset(x1, y), rowPaint);
-          for (var i = 0; i < 4; i++) {
-            final px = x0 + (x1 - x0) * (i + 0.5) / 4;
-            canvas.drawCircle(Offset(px, y - 3), 3.2, plant);
+        final plantCore = Paint()
+          ..color = Color.lerp(
+            FarmlyColors.brandAction,
+            FarmlyColors.surface,
+            0.35,
+          )!;
+        for (var r = 0; r < 4; r++) {
+          final y = h * (0.24 + r * 0.18);
+          canvas.drawLine(Offset(w * 0.09, y), Offset(w * 0.91, y), furrow);
+          for (var i = 0; i < 6; i++) {
+            final px = w * (0.13 + i * 0.148);
+            canvas.drawCircle(Offset(px, y - 5), 4.6, plant);
+            canvas.drawCircle(Offset(px, y - 5), 2.1, plantCore);
           }
         }
       case DemoZoneKind.livestock:
-        // Pasture with a fence rail and grazing dots.
+        // Pasture: fence rails + posts, grazing animals bobbing gently.
         final fence = Paint()
           ..color = Color.lerp(
             FarmlyColors.semanticWarning,
             FarmlyColors.surface,
-            0.2,
+            0.25,
           )!
-          ..strokeWidth = 2.4
+          ..strokeWidth = 2.6
           ..strokeCap = StrokeCap.round;
-        canvas.drawLine(Offset(w * 0.24, h * 0.62), Offset(w * 0.76, h * 0.62), fence);
-        canvas.drawLine(Offset(w * 0.3, h * 0.7), Offset(w * 0.7, h * 0.7), fence);
-        final grazer = Paint()..color = FarmlyColors.surface;
-        final grazerEdge = Paint()
+        canvas.drawLine(
+          Offset(w * 0.07, h * 0.66),
+          Offset(w * 0.93, h * 0.66),
+          fence,
+        );
+        canvas.drawLine(
+          Offset(w * 0.07, h * 0.78),
+          Offset(w * 0.93, h * 0.78),
+          fence,
+        );
+        for (var i = 0; i < 4; i++) {
+          final x = w * (0.16 + i * 0.23);
+          canvas.drawLine(Offset(x, h * 0.6), Offset(x, h * 0.86), fence);
+        }
+        final body = Paint()..color = FarmlyColors.surface;
+        final edge = Paint()
           ..color = FarmlyColors.textSecondary
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2;
-        for (final p in [
-          Offset(w * 0.34, h * 0.4),
-          Offset(w * 0.58, h * 0.46),
-        ]) {
-          canvas.drawOval(
-            Rect.fromCenter(center: p, width: 16, height: 9),
-            grazer,
+          ..strokeWidth = 1.4;
+        for (var i = 0; i < 3; i++) {
+          final bob =
+              math.sin(phase * 2 * math.pi + i * 2.1) * 2.4;
+          final p = Offset(
+            w * (0.24 + i * 0.26),
+            h * (0.3 + (i.isOdd ? 0.14 : 0)) + bob,
           );
           canvas.drawOval(
-            Rect.fromCenter(center: p, width: 16, height: 9),
-            grazerEdge,
+            Rect.fromCenter(center: p, width: 22, height: 13),
+            body,
           );
+          canvas.drawOval(
+            Rect.fromCenter(center: p, width: 22, height: 13),
+            edge,
+          );
+          canvas.drawCircle(p + const Offset(10, -4), 4.6, body);
+          canvas.drawCircle(p + const Offset(10, -4), 4.6, edge);
         }
       case DemoZoneKind.water:
-        // Pond highlight + expanding ripple rings. At phase 0 the ring layout
-        // matches the static golden exactly (first ring at full width).
+        // Main round tank + satellite pond; rings expand with the phase.
+        final water = Paint()..color = FarmlyColors.illustrationWater;
+        canvas.drawCircle(Offset(w * 0.36, h * 0.42), h * 0.27, water);
+        canvas.drawCircle(Offset(w * 0.75, h * 0.62), h * 0.15, water);
         for (var r = 0; r < 3; r++) {
           final cycle = (phase + r / 3) % 1.0;
-          final ripple = Paint()
-            ..color = FarmlyColors.surface.withValues(
-              alpha: 0.7 * (1 - cycle),
-            )
-            ..strokeWidth = 1.6
-            ..strokeCap = StrokeCap.round;
-          final y = h * (0.42 + r * 0.14);
-          final spread = 0.3 + cycle * 0.25;
-          canvas.drawArc(
-            Rect.fromCenter(
-              center: Offset(w / 2, y),
-              width: w * spread,
-              height: h * 0.18 * (0.7 + cycle * 0.4),
-            ),
-            3.4,
-            2.6,
-            false,
-            ripple,
+          canvas.drawCircle(
+            Offset(w * 0.36, h * 0.42),
+            h * 0.27 * (0.4 + cycle * 0.55),
+            Paint()
+              ..color = FarmlyColors.surface.withValues(
+                alpha: 0.75 * (1 - cycle),
+              )
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 2,
           );
         }
+        final lily = Paint()..color = FarmlyColors.brandAction;
+        canvas.drawCircle(Offset(w * 0.71, h * 0.57), 3.6, lily);
+        canvas.drawCircle(Offset(w * 0.79, h * 0.66), 3, lily);
       case DemoZoneKind.house:
-        _paintTinyBuilding(canvas, w, h, FarmlyColors.illustrationBarn);
+        _paintBuilding(canvas, w, h, FarmlyColors.illustrationBarn);
       case DemoZoneKind.storage:
-        _paintTinyBuilding(canvas, w, h, FarmlyColors.textSecondary);
+        _paintBuilding(canvas, w, h, FarmlyColors.textSecondary);
     }
   }
 
-  void _paintTinyBuilding(Canvas canvas, double w, double h, Color wall) {
+  void _paintBuilding(Canvas canvas, double w, double h, Color wall) {
     final cx = w / 2;
-    final cy = h * 0.48;
+    final cy = h * 0.52;
     canvas.drawRect(
-      Rect.fromLTWH(cx - w * 0.14, cy - h * 0.1, w * 0.28, h * 0.3),
+      Rect.fromLTWH(cx - w * 0.16, cy - h * 0.06, w * 0.32, h * 0.3),
       Paint()..color = wall,
     );
     final roof = Path()
-      ..moveTo(cx - w * 0.18, cy - h * 0.1)
-      ..lineTo(cx, cy - h * 0.28)
-      ..lineTo(cx + w * 0.18, cy - h * 0.1)
+      ..moveTo(cx - w * 0.2, cy - h * 0.06)
+      ..lineTo(cx, cy - h * 0.26)
+      ..lineTo(cx + w * 0.2, cy - h * 0.06)
       ..close();
     canvas.drawPath(roof, Paint()..color = FarmlyColors.surface);
     canvas.drawRect(
-      Rect.fromLTWH(cx - w * 0.04, cy + h * 0.04, w * 0.08, h * 0.16),
+      Rect.fromLTWH(cx - w * 0.05, cy + h * 0.1, w * 0.1, h * 0.14),
       Paint()..color = FarmlyColors.surface,
     );
   }
@@ -584,6 +593,7 @@ class IsoZoneTilePainter extends CustomPainter {
       oldDelegate.selected != selected ||
       oldDelegate.phase != phase;
 }
+
 
 /// Semantically-complete list fallback for the explorer scene: the same zone
 /// IDs as the hotspots, readable by screen readers without gestures.
