@@ -6,16 +6,20 @@ import 'core/auth/auth_session_controller.dart';
 import 'core/auth/farmly_auth_models.dart';
 import 'core/theme/farm_theme.dart';
 import 'features/analytics/analytics_screen.dart';
+import 'features/app/app_router.dart' show ChatRouteArguments;
 import 'features/app/app_routes.dart';
 import 'features/app/app_shell.dart';
+import 'features/chat/chat_screens.dart';
 import 'features/farm/farm_overview_screen.dart';
 import 'features/farm/zone_detail_screen.dart';
 import 'features/harvest/harvest_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/livestock/livestock_screen.dart';
+import 'features/organizations/organization_flow_screens.dart';
 import 'features/organizations/organization_repository.dart';
 import 'features/organizations/organization_scope_controller.dart';
 import 'features/profile/profile_screen.dart';
+import 'features/sync/sync_center_screen.dart';
 import 'l10n/generated/app_localizations.dart';
 
 /// Native preview entrypoint for Farm Explorer evidence (V-03, phase 05).
@@ -121,7 +125,55 @@ void main() {
           ),
         ],
       ),
+      GoRoute(
+        path: AppRoutes.organizations,
+        builder: (context, state) => OrganizationFlowScreen(
+          returnTo: state.uri.queryParameters['returnTo'],
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.syncCenter,
+        builder: (context, state) => const SyncCenterScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.chat,
+        builder: (context, state) => const ChatWelcomeScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.chatConversation,
+        builder: (context, state) {
+          final arguments = state.extra;
+          final routeArguments = arguments is ChatRouteArguments
+              ? arguments
+              : const ChatRouteArguments(contextual: false);
+          return ChatConversationScreen(
+            initialPrompt: routeArguments.prompt,
+            contextual: routeArguments.contextual,
+          );
+        },
+      ),
     ],
+    // The preview table only covers the shell + secondary routes above; any
+    // stray navigation (e.g. the error page's home button) lands on the farm
+    // tab instead of go_router's red error screen.
+    redirect: (context, state) {
+      final path = state.uri.path;
+      const known = {
+        AppRoutes.home,
+        AppRoutes.farm,
+        AppRoutes.livestock,
+        AppRoutes.analytics,
+        AppRoutes.harvest,
+        AppRoutes.profile,
+        AppRoutes.organizations,
+        AppRoutes.syncCenter,
+        AppRoutes.chat,
+        AppRoutes.chatConversation,
+      };
+      final allowed =
+          known.contains(path) || path.startsWith('${AppRoutes.zoneDetail}/');
+      return allowed ? null : AppRoutes.farm;
+    },
   );
 
   runApp(
