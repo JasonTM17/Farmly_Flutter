@@ -241,31 +241,6 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                       const Positioned.fill(
                         child: CustomPaint(painter: _IsoGroundPainter()),
                       ),
-                      if (widget.onAdd != null)
-                        Positioned(
-                          top: 10,
-                          right: 10,
-                          child: Semantics(
-                            button: true,
-                            label: 'Tạo vùng mới',
-                            child: Material(
-                              color: FarmlyColors.surface,
-                              shape: const CircleBorder(),
-                              elevation: 2,
-                              child: InkWell(
-                                customBorder: const CircleBorder(),
-                                onTap: widget.onAdd,
-                                child: const SizedBox.square(
-                                  dimension: 40,
-                                  child: Icon(
-                                    Icons.add,
-                                    color: FarmlyColors.brandAction,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
                       // Painter order: iso rows back-to-front so nearer
                       // tiles overdraw further ones correctly.
                       for (final (tileIndex, zone) in _ordered.indexed)
@@ -321,6 +296,7 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                                         top: 0,
                                         child: _ZoneLabelChip(
                                           name: zone.name,
+                                          kind: zone.kind,
                                           selected: selected,
                                         ),
                                       ),
@@ -331,7 +307,32 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                             ),
                           );
                         }(),
-                      ],
+                                          if (widget.onAdd != null)
+                        Positioned(
+                          top: 10,
+                          right: 10,
+                          child: Semantics(
+                            button: true,
+                            label: 'Tạo vùng mới',
+                            child: Material(
+                              color: FarmlyColors.surface,
+                              shape: const CircleBorder(),
+                              elevation: 2,
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: widget.onAdd,
+                                child: const SizedBox.square(
+                                  dimension: 40,
+                                  child: Icon(
+                                    Icons.add,
+                                    color: FarmlyColors.brandAction,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+  ],
                     ),
                   );
                 },
@@ -411,9 +412,14 @@ class _IsoGroundPainter extends CustomPainter {
 
 /// Pill label above each tile, like the reference zone tags.
 class _ZoneLabelChip extends StatelessWidget {
-  const _ZoneLabelChip({required this.name, required this.selected});
+  const _ZoneLabelChip({
+    required this.name,
+    required this.kind,
+    required this.selected,
+  });
 
   final String name;
+  final DemoZoneKind kind;
   final bool selected;
 
   @override
@@ -707,7 +713,8 @@ class IsoZoneTilePainter extends CustomPainter {
       furrow.strokeWidth = 3;
       canvas.drawLine(Offset(w * 0.12, y + 7), Offset(w * 0.88, y + 7), furrow);
       for (var i = 0; i < 5; i++) {
-        final px = w * (0.16 + i * 0.17);
+        final sway = math.sin(phase * 2 * math.pi + i * 0.9 + r) * 1.8;
+        final px = w * (0.16 + i * 0.17) + sway;
         _sphere(canvas, Offset(px, y), 6.4, FarmlyColors.brandAction);
       }
     }
@@ -728,8 +735,9 @@ class IsoZoneTilePainter extends CustomPainter {
       )!;
     for (var r = 0; r < 3; r++) {
       for (var i = 0; i < 8; i++) {
+        final sway = math.sin(phase * 2 * math.pi + i * 0.7 + r * 0.5) * 1.2;
         canvas.drawCircle(
-          Offset(w * (0.14 + i * 0.103), h * (0.61 + r * 0.11)),
+          Offset(w * (0.14 + i * 0.103) + sway, h * (0.61 + r * 0.11)),
           2.6,
           seedling,
         );
@@ -752,10 +760,11 @@ class IsoZoneTilePainter extends CustomPainter {
       final y = h * (0.22 + r * 0.26);
       canvas.drawLine(Offset(w * 0.1, y), Offset(w * 0.9, y), stake);
       for (var i = 0; i < 5; i++) {
+        final sway = math.sin(phase * 2 * math.pi + i * 0.8 + r * 0.4) * 1.6;
         final px = w * (0.14 + i * 0.18);
         canvas.drawLine(Offset(px, y - 8), Offset(px, y + 8), stake);
-        _sphere(canvas, Offset(px, y - 4), 5.4, FarmlyColors.brandAction);
-        canvas.drawCircle(Offset(px + 3.4, y - 2), 1.9, fruit);
+        _sphere(canvas, Offset(px + sway, y - 4), 5.4, FarmlyColors.brandAction);
+        canvas.drawCircle(Offset(px + sway + 3.4, y - 2), 1.9, fruit);
       }
     }
   }
@@ -773,41 +782,95 @@ class IsoZoneTilePainter extends CustomPainter {
       final y = h * (0.2 + r * 0.2);
       for (var i = 0; i < 7; i++) {
         final px = w * (0.12 + i * 0.127);
-        // Stalk stroke.
+        // Stalk sways; kernel dots ride the lean.
+        final sway = math.sin(phase * 2 * math.pi + i * 0.75 + r * 0.55) * 1.8;
         canvas.drawLine(
           Offset(px, y + 6),
-          Offset(px, y - 8 - t * 2),
+          Offset(px + sway, y - 8 - t * 2),
           stalk,
         );
-        // Kernel dots.
-        canvas.drawCircle(Offset(px - 2.4, y - 2), 1.8, kernel);
-        canvas.drawCircle(Offset(px + 2.4, y - 5), 1.8, kernel);
+        canvas.drawCircle(Offset(px + sway - 2.4, y - 2), 1.8, kernel);
+        canvas.drawCircle(Offset(px + sway + 2.4, y - 5), 1.8, kernel);
       }
     }
   }
 
   void _paintBuilding(Canvas canvas, double w, double h, Color wall) {
     final cx = w / 2;
-    final cy = h * 0.5;
-    // Darker right strip = 3D block rather than a flat rectangle.
+    final cy = h * 0.52;
+    final isHouse = kind == DemoZoneKind.house;
+    final darkWall = Color.lerp(wall, FarmlyColors.textPrimary, 0.35)!;
+    // Chimney sits behind the roof on houses.
+    if (isHouse) {
+      canvas.drawRect(
+        Rect.fromLTWH(cx + w * 0.08, cy - h * 0.3, w * 0.045, h * 0.14),
+        Paint()..color = darkWall,
+      );
+    }
+    // Walls with a darker right face = a 3D block, not a flat rect.
     canvas.drawRect(
-      Rect.fromLTWH(cx - w * 0.16, cy - h * 0.04, w * 0.32, h * 0.3),
+      Rect.fromLTWH(cx - w * 0.16, cy - h * 0.04, w * 0.32, h * 0.32),
       Paint()..color = wall,
     );
     canvas.drawRect(
-      Rect.fromLTWH(cx + w * 0.08, cy - h * 0.04, w * 0.08, h * 0.3),
-      Paint()..color = Color.lerp(wall, FarmlyColors.textPrimary, 0.35)!,
+      Rect.fromLTWH(cx + w * 0.08, cy - h * 0.04, w * 0.08, h * 0.32),
+      Paint()..color = darkWall,
     );
+    // Gabled roof: overhangs the walls both sides + a visible ridge stroke.
+    final roofColor = isHouse
+        ? FarmlyColors.semanticError.withValues(alpha: 0.85)
+        : FarmlyColors.surface;
     final roof = Path()
-      ..moveTo(cx - w * 0.2, cy - h * 0.04)
-      ..lineTo(cx, cy - h * 0.26)
-      ..lineTo(cx + w * 0.2, cy - h * 0.04)
+      ..moveTo(cx - w * 0.21, cy - h * 0.02)
+      ..lineTo(cx, cy - h * 0.28)
+      ..lineTo(cx + w * 0.21, cy - h * 0.02)
+      ..lineTo(cx + w * 0.16, cy - h * 0.02)
+      ..lineTo(cx, cy - h * 0.22)
+      ..lineTo(cx - w * 0.16, cy - h * 0.02)
       ..close();
-    canvas.drawPath(roof, Paint()..color = FarmlyColors.surface);
-    canvas.drawRect(
-      Rect.fromLTWH(cx - w * 0.05, cy + h * 0.12, w * 0.1, h * 0.14),
+    canvas.drawPath(
+      roof,
+      Paint()..color = Color.lerp(roofColor, FarmlyColors.textPrimary, 0.08)!,
+    );
+    // Round window on the left face, door centred on the front.
+    canvas.drawCircle(
+      Offset(cx - w * 0.04, cy + h * 0.05),
+      w * 0.035,
       Paint()..color = FarmlyColors.surface,
     );
+    canvas.drawCircle(
+      Offset(cx - w * 0.04, cy + h * 0.05),
+      w * 0.035,
+      Paint()
+        ..color = darkWall
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(
+        cx + (isHouse ? w * 0.02 : -w * 0.075),
+        cy + h * 0.08,
+        isHouse ? w * 0.07 : w * 0.15,
+        h * 0.2,
+      ),
+      Paint()..color = FarmlyColors.surface,
+    );
+    if (!isHouse) {
+      // Cross-brace on the barn door.
+      final brace = Paint()
+        ..color = darkWall
+        ..strokeWidth = 1.4;
+      canvas.drawLine(
+        Offset(cx - w * 0.075, cy + h * 0.08),
+        Offset(cx + w * 0.075, cy + h * 0.28),
+        brace,
+      );
+      canvas.drawLine(
+        Offset(cx + w * 0.075, cy + h * 0.08),
+        Offset(cx - w * 0.075, cy + h * 0.28),
+        brace,
+      );
+    }
   }
 
   @override
