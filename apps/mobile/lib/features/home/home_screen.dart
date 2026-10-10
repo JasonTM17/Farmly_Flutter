@@ -57,20 +57,45 @@ class HomeScreen extends ConsumerWidget {
     final screenState = effectiveDemoState(ref, 'home', dataEmpty: farmIsEmpty);
 
     return FarmScaffold(
-      topBar: _HomeHeader(
-        greeting: useCompactHeader ? l10n.homeTab : greeting,
-        farmName: farm?.name ?? l10n.homeTab,
-        avatarInitial: (session?.name ?? 'F').characters.first.toUpperCase(),
-        onAvatarTap: () => context.go(AppRoutes.profile),
-        onFarmTap: () => showFarmPickerSheet(context),
-        onNotifications: () => showNotificationsSheet(context),
-        onChangeOrganization: () => context.push(AppRoutes.organizations),
-      ),
+      topBar: useCompactHeader
+          ? FarmTopBar(
+              title: l10n.homeTab,
+              actions: [
+                Semantics(
+                  button: true,
+                  label: l10n.changeOrganization,
+                  child: IconButton(
+                    tooltip: l10n.changeOrganization,
+                    icon: const Icon(Icons.swap_horiz_outlined),
+                    onPressed: () => context.push(AppRoutes.organizations),
+                  ),
+                ),
+                Semantics(
+                  button: true,
+                  label: l10n.openNotifications,
+                  child: IconButton(
+                    tooltip: l10n.notificationsTitle,
+                    icon: const Icon(Icons.notifications_outlined),
+                    onPressed: () => showNotificationsSheet(context),
+                  ),
+                ),
+              ],
+            )
+          : _HomeHeader(
+              greeting: greeting,
+              farmName: farm?.name ?? l10n.homeTab,
+              avatarInitial: (session?.name ?? 'F').characters.first
+                  .toUpperCase(),
+              onAvatarTap: () => context.go(AppRoutes.profile),
+              onFarmTap: () => showFarmPickerSheet(context),
+              onNotifications: () => showNotificationsSheet(context),
+              onChangeOrganization: () => context.push(AppRoutes.organizations),
+            ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
               FarmSpacing.lg,
               0,
               FarmSpacing.lg,
@@ -78,23 +103,20 @@ class HomeScreen extends ConsumerWidget {
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [DemoStateSwitcher(screenKey: 'home')],
+              children: [
+                const DemoStateSwitcher(screenKey: 'home'),
+                if (useCompactHeader)
+                  Padding(
+                    padding: const EdgeInsets.only(top: FarmSpacing.xs),
+                    child: Text(
+                      greeting,
+                      style: Theme.of(context).textTheme.titleMedium,
+                      softWrap: true,
+                    ),
+                  ),
+              ],
             ),
           ),
-          if (useCompactHeader)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                FarmSpacing.lg,
-                0,
-                FarmSpacing.lg,
-                FarmSpacing.md,
-              ),
-              child: Text(
-                greeting,
-                style: Theme.of(context).textTheme.titleMedium,
-                softWrap: true,
-              ),
-            ),
           Expanded(
             child: switch (screenState) {
               DemoLoadState.loading => const _HomeSkeleton(),

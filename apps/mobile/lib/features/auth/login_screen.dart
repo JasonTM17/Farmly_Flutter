@@ -201,31 +201,53 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ),
                             ),
                           ),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: CheckboxListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  value: _keepSignedIn,
-                                  onChanged: (value) => setState(
-                                    () => _keepSignedIn = value ?? false,
-                                  ),
-                                  title: Text(
-                                    l10n.keepSignedIn,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodySmall,
-                                  ),
-                                  controlAffinity:
-                                      ListTileControlAffinity.leading,
+                          Builder(
+                            builder: (context) {
+                              final compact =
+                                  MediaQuery.textScalerOf(
+                                        context,
+                                      ).scale(14) /
+                                      14 >=
+                                  1.5;
+                              final keepTile = CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                value: _keepSignedIn,
+                                onChanged: (value) => setState(
+                                  () => _keepSignedIn = value ?? false,
                                 ),
-                              ),
-                              TextButton(
+                                title: Text(
+                                  l10n.keepSignedIn,
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.bodySmall,
+                                ),
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                              );
+                              final forgotButton = TextButton(
                                 onPressed: () =>
                                     context.go(AppRoutes.forgotPassword),
                                 child: Text(l10n.forgotPassword),
-                              ),
-                            ],
+                              );
+                              return compact
+                                  ? Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        keepTile,
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: forgotButton,
+                                        ),
+                                      ],
+                                    )
+                                  : Row(
+                                      children: [
+                                        Expanded(child: keepTile),
+                                        forgotButton,
+                                      ],
+                                    );
+                            },
                           ),
                           if (_error != null) ...[
                             const SizedBox(height: FarmSpacing.sm),
