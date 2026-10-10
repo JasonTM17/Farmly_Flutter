@@ -17,6 +17,7 @@ import 'package:farmly_mobile/features/organizations/organization_repository.dar
 import 'package:farmly_mobile/features/organizations/organization_scope_controller.dart';
 import 'package:farmly_mobile/features/profile/profile_screen.dart';
 import 'package:farmly_mobile/l10n/generated/app_localizations.dart';
+import 'package:farmly_mobile/features/sync/sync_center_screen.dart';
 
 const _testSession = FarmlyAuthSession(
   user: FarmlyAuthUser(
@@ -123,6 +124,11 @@ Future<GoRouter> pumpFarmlyShell(
             ],
           ),
         ],
+      ),
+      // Top-level routes mirrored from app_router for golden/deep-link tests.
+      GoRoute(
+        path: AppRoutes.syncCenter,
+        builder: (context, state) => const SyncCenterScreen(),
       ),
     ],
   );
