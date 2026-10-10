@@ -122,6 +122,7 @@ class ZoneDetailScreen extends ConsumerWidget {
                               kind: zone.kind,
                               selected: false,
                               phase: phase,
+                              name: zone.name,
                             ),
                           ),
                           builder: (context, value, child) =>
