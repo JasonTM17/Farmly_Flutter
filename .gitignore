@@ -79,3 +79,6 @@ apps/mobile/test/golden/failures/
 
 # Local scratch/patch artifacts
 /_*.py
+# Scratch patch/case scripts (one-off migration patchers, machine paths)
+**/_p[0-9]*
+/.zcodeignore
