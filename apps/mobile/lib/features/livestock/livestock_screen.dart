@@ -55,7 +55,21 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(title: const Text('Khu chăn nuôi')),
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Khu chăn nuôi'),
+            if (farm != null)
+              Text(
+                farm.name,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: tokens.textSecondary,
+                ),
+              ),
+          ],
+        ),
+      ),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -141,17 +155,72 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                       ),
                     ),
                     const SizedBox(height: FarmSpacing.md),
-                    Text(
-                      'Cho ăn hôm nay',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: FarmSpacing.sm),
                     FarmCard(
-                      child: FeedingTimeline(entries: feeding),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Cho ăn hôm nay',
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleSmall,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: FarmSpacing.sm,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: tokens.brandSage.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  '$feedingDone/$feedingTotal xong',
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.labelSmall?.copyWith(
+                                    color: tokens.brandAction,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: FarmSpacing.md),
+                          FeedingTimeline(entries: feeding),
+                          const SizedBox(height: FarmSpacing.sm),
+                          Text(
+                            'Theo ngày của nông trại.',
+                            style: Theme.of(
+                              context,
+                            ).textTheme.labelSmall?.copyWith(
+                              color: tokens.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: FarmSpacing.md),
+                    Text(
+                      'Nhóm vật nuôi',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Chạm một nhóm để xem danh sách.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: tokens.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: FarmSpacing.sm),
                     SizedBox(
-                      height: FarmSpacing.minTouchTarget,
+                      height: 116,
                       child: ListView(
                         scrollDirection: Axis.horizontal,
                         children: [
@@ -159,24 +228,32 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                             button: true,
                             selected: _categoryFilter == null,
                             label: 'Nhóm tất cả, $totalHeadcount con',
-                            child: ChoiceChip(
-                              label: Text('Tất cả ($totalHeadcount)'),
-                              selected: _categoryFilter == null,
-                              onSelected: (_) =>
-                                  setState(() => _categoryFilter = null),
+                            child: SizedBox(
+                              width: 96,
+                              child: _AllCategoryCard(
+                                count: totalHeadcount,
+                                selected: _categoryFilter == null,
+                                onTap: () =>
+                                    setState(() => _categoryFilter = null),
+                              ),
                             ),
                           ),
                           for (final category in DemoAnimalCategory.values)
-                            AnimalCategoryChip(
-                              category: category,
-                              count: categoryLivestockHeadcount(
-                                state,
-                                farm?.id,
-                                category,
+                            Padding(
+                              padding: const EdgeInsets.only(
+                                left: FarmSpacing.sm,
                               ),
-                              selected: _categoryFilter == category,
-                              onSelected: (_) => setState(
-                                () => _categoryFilter = category,
+                              child: AnimalCategoryCard(
+                                category: category,
+                                count: categoryLivestockHeadcount(
+                                  state,
+                                  farm?.id,
+                                  category,
+                                ),
+                                selected: _categoryFilter == category,
+                                onSelected: (_) => setState(
+                                  () => _categoryFilter = category,
+                                ),
                               ),
                             ),
                         ],
@@ -268,15 +345,19 @@ class _LivestockSkeleton extends StatelessWidget {
         ),
         const SizedBox(height: FarmSpacing.md),
         SizedBox(
-          height: FarmSpacing.minTouchTarget,
+          height: 116,
           child: ListView(
             scrollDirection: Axis.horizontal,
             children: [
-              ChoiceChip(
-                label: Text('Tất cả ($headcount)'),
-                selected: filter == null,
-                onSelected: (_) => onFilter(null),
-              ),
+              for (var i = 0; i < 5; i++)
+                const Padding(
+                  padding: EdgeInsets.only(right: FarmSpacing.sm),
+                  child: SkeletonSurface(
+                    width: 96,
+                    height: 116,
+                    radius: FarmSpacing.cardRadius,
+                  ),
+                ),
             ],
           ),
         ),
@@ -607,6 +688,74 @@ class _BatchMovementDialogState extends ConsumerState<_BatchMovementDialog> {
         ),
         FilledButton(onPressed: _save, child: const Text('Lưu')),
       ],
+    );
+  }
+}
+
+/// The leading "Tất cả" card in the category row — mirrors
+/// [AnimalCategoryCard] with a generic herd icon instead of a portrait.
+class _AllCategoryCard extends StatelessWidget {
+  const _AllCategoryCard({
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FarmThemeExtension.of(context);
+    return Material(
+      color: selected
+          ? tokens.brandSage.withValues(alpha: 0.35)
+          : Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(FarmSpacing.cardRadius),
+        side: BorderSide(
+          color: selected ? tokens.brandAction : tokens.divider,
+          width: selected ? 1.6 : 1,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(FarmSpacing.cardRadius),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            vertical: FarmSpacing.sm,
+            horizontal: FarmSpacing.sm,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 44,
+                height: 44,
+                child: Icon(
+                  Icons.groups_2_outlined,
+                  size: 36,
+                  color: tokens.brandAction,
+                ),
+              ),
+              const SizedBox(height: FarmSpacing.sm),
+              Text(
+                '$count',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              Text(
+                'Tất cả',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: tokens.textSecondary,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

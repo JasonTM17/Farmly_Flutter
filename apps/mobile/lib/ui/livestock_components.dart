@@ -6,9 +6,10 @@ import '../features/demo/demo_models.dart';
 import 'farm_card.dart';
 import 'illustrations.dart';
 
-/// Category filter chip (Cows / Chickens / Sheep / Goats) with count.
-class AnimalCategoryChip extends StatelessWidget {
-  const AnimalCategoryChip({
+/// Category selector card (reference livestock screen): square card with the
+/// animal portrait, headcount and label; doubles as the herd filter.
+class AnimalCategoryCard extends StatelessWidget {
+  const AnimalCategoryCard({
     required this.category,
     required this.count,
     required this.selected,
@@ -23,14 +24,54 @@ class AnimalCategoryChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = FarmThemeExtension.of(context);
     return Semantics(
       button: true,
       selected: selected,
       label: 'Nhóm ${category.viLabel}, $count con',
-      child: ChoiceChip(
-        label: Text('${category.viLabel} ($count)'),
-        selected: selected,
-        onSelected: onSelected,
+      child: SizedBox(
+        width: 96,
+        child: Material(
+          color: selected
+              ? tokens.brandSage.withValues(alpha: 0.35)
+              : Theme.of(context).colorScheme.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(FarmSpacing.cardRadius),
+            side: BorderSide(
+              color: selected ? tokens.brandAction : tokens.divider,
+              width: selected ? 1.6 : 1,
+            ),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(FarmSpacing.cardRadius),
+            onTap: () => onSelected(!selected),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                vertical: FarmSpacing.sm,
+                horizontal: FarmSpacing.sm,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AnimalPortrait(category: category, size: 44),
+                  const SizedBox(height: FarmSpacing.sm),
+                  Text(
+                    '$count',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  Text(
+                    category.viLabel,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: tokens.textSecondary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -48,9 +89,7 @@ class AnimalCard extends StatelessWidget {
     final tokens = FarmThemeExtension.of(context);
     final alive = animal.status == DemoAnimalStatus.alive;
     final birth = animal.birthDate;
-    final dateLine = birth == null
-        ? 'Chưa ghi ngày sinh'
-        : 'Sinh $birth';
+    final dateLine = birth == null ? 'Chưa ghi ngày sinh' : 'Sinh $birth';
     return Semantics(
       container: true,
       label:
@@ -97,8 +136,9 @@ class AnimalCard extends StatelessWidget {
   }
 }
 
-/// Today's feeding timeline with done/total progress (non-color-only: the
-/// fraction text always accompanies the bar).
+/// Today's feeding slots as a horizontal timeline (reference livestock
+/// screen): status circle + time + feed label + state caption per slot, with
+/// the fraction always rendered as text (non-color-only).
 class FeedingTimeline extends StatelessWidget {
   const FeedingTimeline({required this.entries, super.key});
 
@@ -107,62 +147,89 @@ class FeedingTimeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = FarmThemeExtension.of(context);
-    return Column(
-      children: entries
-          .map(
-            (entry) => Padding(
-              padding: const EdgeInsets.only(bottom: FarmSpacing.md),
-              child: Semantics(
-                container: true,
-                label:
-                    'Cho ăn ${entry.category.viLabel} lúc ${entry.timeLabel}, '
-                    '${entry.feedLabel}: đã cho ${entry.done} trên ${entry.total} lượt',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        SizedBox(
-                          width: 48,
-                          child: Text(
-                            entry.timeLabel,
-                            style: Theme.of(context).textTheme.labelLarge,
-                          ),
-                        ),
-                        const SizedBox(width: FarmSpacing.sm),
-                        Expanded(
-                          child: Text(
-                            '${entry.category.viLabel} · ${entry.feedLabel}',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                            softWrap: true,
-                          ),
-                        ),
-                        Text(
-                          '${entry.done}/${entry.total}',
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: FarmSpacing.xs),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(FarmSpacing.xs),
-                      child: LinearProgressIndicator(
-                        value: entry.total == 0
-                            ? 0
-                            : entry.done / entry.total,
-                        minHeight: 6,
-                        backgroundColor: tokens.brandSage,
-                        color: entry.done == entry.total
-                            ? tokens.brandAction
-                            : tokens.semanticWarning,
-                      ),
-                    ),
-                  ],
-                ),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < entries.length; i++) ...[
+          if (i > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 13),
+              child: SizedBox(
+                width: FarmSpacing.md,
+                child: Divider(height: 2, thickness: 2, color: tokens.divider),
               ),
             ),
-          )
-          .toList(),
+          Expanded(child: _FeedingSlot(entry: entries[i], tokens: tokens)),
+        ],
+      ],
+    );
+  }
+}
+
+class _FeedingSlot extends StatelessWidget {
+  const _FeedingSlot({required this.entry, required this.tokens});
+
+  final DemoFeedingEntry entry;
+  final FarmThemeExtension tokens;
+
+  @override
+  Widget build(BuildContext context) {
+    final finished = entry.total > 0 && entry.done == entry.total;
+    final started = entry.done > 0 && !finished;
+    final stateLabel = finished
+        ? 'Xong'
+        : started
+        ? 'Đang làm'
+        : 'Sắp tới';
+    return Semantics(
+      container: true,
+      label:
+          'Cho ăn ${entry.category.viLabel} lúc ${entry.timeLabel}, '
+          '${entry.feedLabel}: đã cho ${entry.done} trên ${entry.total} lượt — '
+          '$stateLabel',
+      child: Column(
+        children: [
+          Container(
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: finished ? tokens.brandAction : Colors.transparent,
+              border: Border.all(
+                color: finished ? tokens.brandAction : tokens.textSecondary,
+                width: 1.6,
+              ),
+            ),
+            child: finished
+                ? const Icon(Icons.check, size: 16, color: Colors.white)
+                : started
+                ? Icon(Icons.more_horiz, size: 16, color: tokens.textSecondary)
+                : null,
+          ),
+          const SizedBox(height: FarmSpacing.xs),
+          Text(
+            entry.timeLabel,
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+          Text(
+            entry.feedLabel,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: tokens.textSecondary,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '${entry.done}/${entry.total} · $stateLabel',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: finished ? tokens.brandAction : tokens.textSecondary,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
 }

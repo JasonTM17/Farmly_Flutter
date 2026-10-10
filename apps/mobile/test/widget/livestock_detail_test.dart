@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:farmly_mobile/core/theme/farm_theme.dart';
+import 'package:farmly_mobile/features/demo/demo_models.dart';
 import 'package:farmly_mobile/features/livestock/livestock_screen.dart';
 import 'package:farmly_mobile/l10n/generated/app_localizations.dart';
+import 'package:farmly_mobile/ui/livestock_components.dart';
 
 /// Phase 05 step 4 / D-05 (spec 02 §5 Livestock, spec06): herds group into
 /// batch vs tracked modes; headcount counts tracked-alive plus batch
@@ -84,7 +86,7 @@ void main() {
     expect(find.text('2 con'), findsWidgets);
   });
 
-  testWidgets('category chips count headcount, not animal rows', (
+  testWidgets('category cards count headcount, not animal rows', (
     tester,
   ) async {
     tallViewport(tester);
@@ -92,9 +94,16 @@ void main() {
     await tester.pumpAndSettle();
 
     // Chickens are a 120-head batch herd with zero animal records.
-    expect(find.text('Gà (120)'), findsOneWidget);
-    expect(find.text('Bò (2)'), findsOneWidget);
-    expect(find.text('Cừu (1)'), findsOneWidget);
+    final cards = find.byType(AnimalCategoryCard);
+    expect(cards, findsNWidgets(DemoAnimalCategory.values.length));
+    int countOf(DemoAnimalCategory category) => tester
+        .widgetList<AnimalCategoryCard>(cards)
+        .firstWhere((card) => card.category == category)
+        .count;
+
+    expect(countOf(DemoAnimalCategory.chickens), 120);
+    expect(countOf(DemoAnimalCategory.cows), 2);
+    expect(countOf(DemoAnimalCategory.sheep), 1);
   });
 
   testWidgets('no fictional clinical or health metric is rendered', (
