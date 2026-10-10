@@ -47,9 +47,19 @@ const _previewScope = FarmlyOrganizationScope(
   directory: FarmlyFarmDirectory(
     scopePolicyVersion: '1',
     continuityEpoch: '1',
-    farms: <FarmlyDirectoryFarm>[],
+    // Mirrors the demo farm so the header and farm picker stay coherent
+    // with the demo data shown across the preview.
+    farms: <FarmlyDirectoryFarm>[
+      FarmlyDirectoryFarm(
+        id: 'farm-bavi',
+        name: 'Nông trại Ba Vì',
+        status: FarmlyFarmStatus.active,
+        grantRole: FarmlyFarmGrantRole.owner,
+      ),
+    ],
   ),
   epoch: 1,
+  selectedFarmId: 'farm-bavi',
 );
 
 class _PreviewSessionController extends FarmlyAuthSessionController {
@@ -182,6 +192,11 @@ void main() {
         farmlyAuthSessionProvider.overrideWith(_PreviewSessionController.new),
         selectedOrganizationScopeProvider.overrideWith(
           _PreviewScopeController.new,
+        ),
+        // The org-picker screen reads this family; without an override it
+        // calls the real API and spins forever in preview.
+        farmlyOrganizationsProvider.overrideWith(
+          (ref, key) async => <FarmlyOrganization>[_previewScope.organization],
         ),
       ],
       child: MaterialApp.router(
