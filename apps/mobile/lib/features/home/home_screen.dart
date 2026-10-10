@@ -9,6 +9,7 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../ui/farm_card.dart';
 import '../../ui/farm_scaffold.dart';
 import '../../ui/illustrations.dart';
+import '../../ui/motion.dart';
 import '../../ui/pickers.dart';
 import '../../ui/screen_states.dart';
 import '../../ui/summary_cards.dart';
@@ -371,23 +372,28 @@ class _HomeContent extends ConsumerWidget {
           const SizedBox(height: FarmSpacing.md),
         ],
         // Illustrated farm banner above the summary row (reference home).
-        const SizedBox(
+        // Clouds drift + birds bob via the ambient phase.
+        SizedBox(
           height: 150,
           child: ExcludeSemantics(
             child: ClipRRect(
-              borderRadius: BorderRadius.all(
+              borderRadius: const BorderRadius.all(
                 Radius.circular(FarmSpacing.cardRadius),
               ),
-              child: CustomPaint(
-                painter: FarmScenePainter(),
-                size: Size.infinite,
+              child: FarmAmbientLoop(
+                builder: (context, phase) => CustomPaint(
+                  painter: FarmScenePainter(phase: phase),
+                  size: Size.infinite,
+                ),
               ),
             ),
           ),
         ),
         const SizedBox(height: FarmSpacing.md),
         // Health + weather sit side by side, like the reference home.
-        Row(
+        FarmEntrance(
+          delay: FarmSpacing.press,
+          child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
@@ -404,6 +410,7 @@ class _HomeContent extends ConsumerWidget {
               ),
             ),
           ],
+          ),
         ),
         const SizedBox(height: FarmSpacing.lg),
         Text(
@@ -414,7 +421,9 @@ class _HomeContent extends ConsumerWidget {
         // Static 2x2 stat rows: the home tab must expose a single scroll
         // surface, and a shrink-wrapped GridView nested in this ListView
         // would add a second Scrollable node to the tree.
-        Column(
+        FarmEntrance(
+          delay: FarmSpacing.state,
+          child: Column(
           children: [
             Row(
               children: [
@@ -472,15 +481,19 @@ class _HomeContent extends ConsumerWidget {
               ],
             ),
           ],
+          ),
         ),
         const SizedBox(height: FarmSpacing.md),
-        Semantics(
-          button: true,
-          label: l10n.askFarmlyAiSemantics,
-          child: FilledButton.icon(
-            onPressed: () => context.push(AppRoutes.chat),
-            icon: const Icon(Icons.forum_outlined),
-            label: Text(l10n.askFarmlyAi),
+        FarmEntrance(
+          delay: FarmSpacing.zoneZoom,
+          child: Semantics(
+            button: true,
+            label: l10n.askFarmlyAiSemantics,
+            child: FilledButton.icon(
+              onPressed: () => context.push(AppRoutes.chat),
+              icon: const Icon(Icons.forum_outlined),
+              label: Text(l10n.askFarmlyAi),
+            ),
           ),
         ),
       ],

@@ -146,6 +146,12 @@ Future<GoRouter> pumpFarmlyShell(
       ],
       child: MaterialApp.router(
         theme: buildFarmTheme(),
+        // Reduced motion keeps pumpAndSettle deterministic: ambient loops
+        // render statically and entrances land at their resting state.
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: child ?? const SizedBox.shrink(),
+        ),
         locale: locale,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,

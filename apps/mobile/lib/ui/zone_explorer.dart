@@ -4,6 +4,7 @@ import '../core/theme/farmly_colors.dart';
 import '../core/theme/farmly_spacing.dart';
 import '../core/theme/farmly_theme_extension.dart';
 import '../features/demo/demo_models.dart';
+import 'motion.dart';
 
 IconData _zoneIcon(DemoZoneKind kind, {required bool filled}) {
   switch (kind) {
@@ -198,16 +199,18 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                     constraints.maxWidth,
                     constraints.maxHeight,
                   );
-                  return Stack(
-                    clipBehavior: Clip.none,
-                    children: [
+                  return FarmAmbientLoop(
+                    builder: (context, phase) => Stack(
+                      clipBehavior: Clip.none,
+                      children: [
                       const Positioned.fill(
                         child: CustomPaint(painter: _IsoGroundPainter()),
                       ),
                       // Painter order: iso rows back-to-front so nearer
                       // tiles overdraw further ones correctly.
-                      for (final zone in widget.zones.toList()
-                        ..sort((a, b) => (a.x + a.y).compareTo(b.x + b.y)))
+                      for (final (tileIndex, zone) in (widget.zones.toList()
+                            ..sort((a, b) => (a.x + a.y).compareTo(b.x + b.y)))
+                          .indexed)
                         () {
                           final center = _isoCenter(zone, canvas);
                           final selected =
@@ -235,31 +238,38 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                                 },
                                 onDoubleTap: () =>
                                     widget.onOpenDetail(zone),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    _ZoneLabelChip(
-                                      name: zone.name,
-                                      selected: selected,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    SizedBox(
-                                      width: _tileW,
-                                      height: _tileH + _tileDepth,
-                                      child: CustomPaint(
-                                        painter: IsoZoneTilePainter(
-                                          kind: zone.kind,
-                                          selected: selected,
+                                child: FarmEntrance(
+                                  delay: Duration(
+                                    milliseconds: 70 * tileIndex,
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _ZoneLabelChip(
+                                        name: zone.name,
+                                        selected: selected,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      SizedBox(
+                                        width: _tileW,
+                                        height: _tileH + _tileDepth,
+                                        child: CustomPaint(
+                                          painter: IsoZoneTilePainter(
+                                            kind: zone.kind,
+                                            selected: selected,
+                                            phase: phase,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
                           );
                         }(),
-                    ],
+                      ],
+                    ),
                   );
                 },
               ),
@@ -373,10 +383,17 @@ class _ZoneLabelChip extends StatelessWidget {
 /// fields, a pond for water zones, a small building for house/storage, a
 /// fenced pasture for livestock.
 class IsoZoneTilePainter extends CustomPainter {
-  const IsoZoneTilePainter({required this.kind, required this.selected});
+  const IsoZoneTilePainter({
+    required this.kind,
+    required this.selected,
+    this.phase = 0,
+  });
 
   final DemoZoneKind kind;
   final bool selected;
+
+  /// Ambient phase 0..1 — currently drives the pond ripple cycle.
+  final double phase;
 
   static Path _diamond(double w, double h) => Path()
     ..moveTo(w / 2, 0)
@@ -511,18 +528,23 @@ class IsoZoneTilePainter extends CustomPainter {
           );
         }
       case DemoZoneKind.water:
-        // Pond highlight + ripple lines.
-        final ripple = Paint()
-          ..color = FarmlyColors.surface.withValues(alpha: 0.7)
-          ..strokeWidth = 1.6
-          ..strokeCap = StrokeCap.round;
-        for (var r = 0; r < 2; r++) {
-          final y = h * (0.42 + r * 0.16);
+        // Pond highlight + expanding ripple rings. At phase 0 the ring layout
+        // matches the static golden exactly (first ring at full width).
+        for (var r = 0; r < 3; r++) {
+          final cycle = (phase + r / 3) % 1.0;
+          final ripple = Paint()
+            ..color = FarmlyColors.surface.withValues(
+              alpha: 0.7 * (1 - cycle),
+            )
+            ..strokeWidth = 1.6
+            ..strokeCap = StrokeCap.round;
+          final y = h * (0.42 + r * 0.14);
+          final spread = 0.3 + cycle * 0.25;
           canvas.drawArc(
             Rect.fromCenter(
               center: Offset(w / 2, y),
-              width: w * 0.5,
-              height: h * 0.18,
+              width: w * spread,
+              height: h * 0.18 * (0.7 + cycle * 0.4),
             ),
             3.4,
             2.6,
@@ -558,7 +580,9 @@ class IsoZoneTilePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(IsoZoneTilePainter oldDelegate) =>
-      oldDelegate.kind != kind || oldDelegate.selected != selected;
+      oldDelegate.kind != kind ||
+      oldDelegate.selected != selected ||
+      oldDelegate.phase != phase;
 }
 
 /// Semantically-complete list fallback for the explorer scene: the same zone

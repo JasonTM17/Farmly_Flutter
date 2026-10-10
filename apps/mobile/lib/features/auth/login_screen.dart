@@ -8,6 +8,7 @@ import '../../core/theme/farmly_spacing.dart';
 import '../../core/theme/farmly_theme_extension.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../ui/illustrations.dart';
+import '../../ui/motion.dart';
 import '../app/app_routes.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -116,8 +117,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       height: 240,
                       width: double.infinity,
                       child: ExcludeSemantics(
-                        child: CustomPaint(
-                          painter: const FarmScenePainter(),
+                        child: FarmAmbientLoop(
+                          builder: (context, phase) => CustomPaint(
+                            painter: FarmScenePainter(phase: phase),
                           child: Padding(
                             padding: const EdgeInsets.all(FarmSpacing.md),
                             child: Row(
@@ -135,6 +137,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ],
                             ),
                           ),
+                        ),
                         ),
                       ),
                     ),

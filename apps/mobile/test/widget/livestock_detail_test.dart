@@ -23,6 +23,12 @@ void main() {
     return ProviderScope(
       child: MaterialApp(
         theme: buildFarmTheme(),
+        // Deterministic frames: ambient loops render statically
+        // so pumpAndSettle terminates.
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: child ?? const SizedBox.shrink(),
+        ),
         locale: const Locale('vi'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,

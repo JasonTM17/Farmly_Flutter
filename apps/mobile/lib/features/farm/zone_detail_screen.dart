@@ -7,6 +7,7 @@ import '../../core/theme/farmly_theme_extension.dart';
 import '../../ui/farm_card.dart';
 import '../../ui/form_fields.dart';
 import '../../ui/zone_explorer.dart';
+import '../../ui/motion.dart';
 import '../../ui/pickers.dart';
 import '../../ui/screen_states.dart';
 import '../app/app_router.dart';
@@ -94,6 +95,7 @@ class ZoneDetailScreen extends ConsumerWidget {
                 const SizedBox(height: FarmSpacing.md),
               ],
               // Iso tile hero — the same tile the map renders, zoomed.
+              // Water tiles keep their rippling pond; the tile scales in.
               if (zone != null)
                 ExcludeSemantics(
                   child: ClipRRect(
@@ -107,13 +109,32 @@ class ZoneDetailScreen extends ConsumerWidget {
                       ),
                       alignment: Alignment.center,
                       padding: const EdgeInsets.only(top: FarmSpacing.lg),
-                      child: SizedBox(
-                        width: 240,
-                        height: 150,
-                        child: CustomPaint(
-                          painter: IsoZoneTilePainter(
-                            kind: zone.kind,
-                            selected: false,
+                      child: FarmAmbientLoop(
+                        builder: (context, phase) =>
+                            TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0, end: 1),
+                          duration: context.farmReducedMotion()
+                              ? Duration.zero
+                              : FarmSpacing.entrance * 2,
+                          curve: Curves.easeOutBack,
+                          child: CustomPaint(
+                            painter: IsoZoneTilePainter(
+                              kind: zone.kind,
+                              selected: false,
+                              phase: phase,
+                            ),
+                          ),
+                          builder: (context, value, child) =>
+                              Transform.scale(
+                            scale: 0.75 + 0.25 * value,
+                            child: Opacity(
+                              opacity: value.clamp(0.0, 1.0),
+                              child: SizedBox(
+                                width: 240,
+                                height: 150,
+                                child: child,
+                              ),
+                            ),
                           ),
                         ),
                       ),

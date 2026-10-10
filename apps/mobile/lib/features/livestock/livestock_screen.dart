@@ -6,6 +6,7 @@ import '../../core/theme/farmly_theme_extension.dart';
 import '../../ui/farm_card.dart';
 import '../../ui/form_fields.dart';
 import '../../ui/illustrations.dart';
+import '../../ui/motion.dart';
 import '../../ui/livestock_components.dart';
 import '../../ui/pickers.dart';
 import '../../ui/screen_states.dart';
@@ -224,35 +225,41 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                       child: ListView(
                         scrollDirection: Axis.horizontal,
                         children: [
-                          Semantics(
-                            button: true,
-                            selected: _categoryFilter == null,
-                            label: 'Nhóm tất cả, $totalHeadcount con',
-                            child: SizedBox(
-                              width: 96,
-                              child: _AllCategoryCard(
-                                count: totalHeadcount,
-                                selected: _categoryFilter == null,
-                                onTap: () =>
-                                    setState(() => _categoryFilter = null),
+                          FarmEntrance(
+                            child: Semantics(
+                              button: true,
+                              selected: _categoryFilter == null,
+                              label: 'Nhóm tất cả, $totalHeadcount con',
+                              child: SizedBox(
+                                width: 96,
+                                child: _AllCategoryCard(
+                                  count: totalHeadcount,
+                                  selected: _categoryFilter == null,
+                                  onTap: () =>
+                                      setState(() => _categoryFilter = null),
+                                ),
                               ),
                             ),
                           ),
-                          for (final category in DemoAnimalCategory.values)
-                            Padding(
-                              padding: const EdgeInsets.only(
-                                left: FarmSpacing.sm,
-                              ),
-                              child: AnimalCategoryCard(
+                          for (final (ci, category)
+                              in DemoAnimalCategory.values.indexed)
+                            FarmEntrance(
+                              delay: Duration(milliseconds: 60 * (ci + 1)),
+                              child: Padding(
+                                padding: const EdgeInsets.only(
+                                  left: FarmSpacing.sm,
+                                ),
+                                child: AnimalCategoryCard(
                                 category: category,
                                 count: categoryLivestockHeadcount(
                                   state,
                                   farm?.id,
                                   category,
                                 ),
-                                selected: _categoryFilter == category,
-                                onSelected: (_) => setState(
-                                  () => _categoryFilter = category,
+                                  selected: _categoryFilter == category,
+                                  onSelected: (_) => setState(
+                                    () => _categoryFilter = category,
+                                  ),
                                 ),
                               ),
                             ),
@@ -286,16 +293,19 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                         ),
                       )
                     else
-                      for (final herd in visibleHerds)
+                      for (final (hi, herd) in visibleHerds.indexed)
                         Padding(
                           padding: const EdgeInsets.only(bottom: FarmSpacing.md),
-                          child: _HerdSection(
+                          child: FarmEntrance(
+                            delay: Duration(milliseconds: 80 * hi),
+                            child: _HerdSection(
                             herd: herd,
                             animals: animalsOfHerd(state, herd.id),
                             headcount: herdHeadcount(state, herd),
                             records: productionOfHerd(state, herd.id),
-                            readOnly:
-                                screenState == DemoLoadState.permissionDenied,
+                              readOnly:
+                                  screenState == DemoLoadState.permissionDenied,
+                            ),
                           ),
                         ),
                   ],

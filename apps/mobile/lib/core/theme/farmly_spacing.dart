@@ -24,6 +24,12 @@ abstract final class FarmSpacing {
 
   /// Zone zoom / shared element transition, bounded.
   static const Duration zoneZoom = Duration(milliseconds: 300);
+
+  /// Screen/element entrance — fade + short rise.
+  static const Duration entrance = Duration(milliseconds: 350);
+
+  /// Ambient loop period (cloud drift, water ripple) — slow and subtle.
+  static const Duration ambient = Duration(seconds: 9);
 }
 
 /// Motion helpers honoring the platform reduced-motion setting: durations

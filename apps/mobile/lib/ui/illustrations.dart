@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../core/theme/farmly_colors.dart';
@@ -12,10 +14,18 @@ import '../features/demo/demo_models.dart';
 /// blue-sky band with sun/clouds/birds, layered green hills, red barn with a
 /// gray silo, rounded trees, and cream field rows in the foreground.
 class FarmScenePainter extends CustomPainter {
-  const FarmScenePainter({this.showBarn = true, this.showSun = true});
+  const FarmScenePainter({
+    this.showBarn = true,
+    this.showSun = true,
+    this.phase = 0,
+  });
 
   final bool showBarn;
   final bool showSun;
+
+  /// Ambient phase 0..1 — clouds drift right-to-left and birds bob. Painted
+  /// scenes that pass a changing phase must set [shouldRepaint] accordingly.
+  final double phase;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -40,11 +50,27 @@ class FarmScenePainter extends CustomPainter {
     canvas.drawRect(Rect.fromLTWH(0, 0, w, horizon), skyPaint);
 
     if (showSun) {
-      _paintSun(canvas, Offset(w * 0.8, h * 0.16), h * 0.075);
+      final breathe = 1 + math.sin(phase * 2 * math.pi) * 0.05;
+      _paintSun(canvas, Offset(w * 0.8, h * 0.16), h * 0.075 * breathe);
     }
-    _paintCloud(canvas, Offset(w * 0.18, h * 0.13), w * 0.16);
-    _paintCloud(canvas, Offset(w * 0.55, h * 0.08), w * 0.11);
-    _paintBirds(canvas, Offset(w * 0.36, h * 0.18), h * 0.05);
+    // Phase 0 reproduces the static reference layout exactly (goldens stay
+    // stable); drift moves clouds right, wrapping past the right edge.
+    double wrapX(double base) {
+      final x = base + phase * w * 0.14;
+      return x > w * 1.15 ? x - w * 1.35 : x;
+    }
+
+    _paintCloud(canvas, Offset(wrapX(w * 0.18), h * 0.13), w * 0.16);
+    _paintCloud(canvas, Offset(wrapX(w * 0.55), h * 0.08), w * 0.11);
+    _paintCloud(canvas, Offset(wrapX(w * 0.9), h * 0.16), w * 0.09);
+    _paintBirds(
+      canvas,
+      Offset(
+        w * 0.36 + phase * w * 0.07,
+        h * 0.18 + math.sin(phase * 2 * math.pi) * h * 0.012,
+      ),
+      h * 0.05,
+    );
 
     // Far hill band (lighter sage) then near hill (darker).
     final farHill = Paint()
@@ -294,7 +320,9 @@ class FarmScenePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(FarmScenePainter oldDelegate) =>
-      oldDelegate.showBarn != showBarn || oldDelegate.showSun != showSun;
+      oldDelegate.showBarn != showBarn ||
+      oldDelegate.showSun != showSun ||
+      oldDelegate.phase != phase;
 }
 
 /// Sprout logo mark: stem plus two leaves.

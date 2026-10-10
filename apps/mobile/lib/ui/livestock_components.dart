@@ -5,6 +5,7 @@ import '../core/theme/farmly_theme_extension.dart';
 import '../features/demo/demo_models.dart';
 import 'farm_card.dart';
 import 'illustrations.dart';
+import 'motion.dart';
 
 /// Category selector card (reference livestock screen): square card with the
 /// animal portrait, headcount and label; doubles as the herd filter.
@@ -159,7 +160,12 @@ class FeedingTimeline extends StatelessWidget {
                 child: Divider(height: 2, thickness: 2, color: tokens.divider),
               ),
             ),
-          Expanded(child: _FeedingSlot(entry: entries[i], tokens: tokens)),
+          Expanded(
+            child: FarmEntrance(
+              delay: Duration(milliseconds: 70 * i),
+              child: _FeedingSlot(entry: entries[i], tokens: tokens),
+            ),
+          ),
         ],
       ],
     );
@@ -201,7 +207,23 @@ class _FeedingSlot extends StatelessWidget {
               ),
             ),
             child: finished
-                ? const Icon(Icons.check, size: 16, color: Colors.white)
+                // Finished slots pop their check in after the circle fills;
+                // reduced motion shows the check immediately.
+                ? TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: 1),
+                    duration: context.farmReducedMotion()
+                        ? Duration.zero
+                        : FarmSpacing.entrance,
+                    curve: Curves.easeOutBack,
+                    builder: (context, value, _) => Transform.scale(
+                      scale: value,
+                      child: const Icon(
+                        Icons.check,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                    ),
+                  )
                 : started
                 ? Icon(Icons.more_horiz, size: 16, color: tokens.textSecondary)
                 : null,

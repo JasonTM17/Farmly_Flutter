@@ -54,6 +54,10 @@ Future<(ProviderContainer, GoRouter)> pumpApp(
     ],
   );
   addTearDown(container.dispose);
+  // Ambient/entrance motion renders statically so pumpAndSettle terminates.
+  tester.platformDispatcher.accessibilityFeaturesTestValue =
+      const FakeAccessibilityFeatures(disableAnimations: true);
+  addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
   final router = container.read(farmlyRouterProvider);
   await tester.pumpWidget(
     UncontrolledProviderScope(

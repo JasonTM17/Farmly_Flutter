@@ -53,6 +53,12 @@ void main() {
   }) {
     return MaterialApp(
       theme: buildFarmTheme(),
+      // Deterministic frames: ambient loops stay static so pumpAndSettle
+      // terminates and entrances render at their resting state.
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(disableAnimations: true),
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: Scaffold(
         body: Column(
           children: [

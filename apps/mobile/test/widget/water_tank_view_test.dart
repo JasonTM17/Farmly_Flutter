@@ -27,6 +27,12 @@ void main() {
       ],
       child: MaterialApp(
         theme: buildFarmTheme(),
+        // Deterministic frames: ambient loops render statically
+        // so pumpAndSettle terminates.
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: child ?? const SizedBox.shrink(),
+        ),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: const ZoneDetailScreen(zoneId: 'zone-bon-nuoc'),

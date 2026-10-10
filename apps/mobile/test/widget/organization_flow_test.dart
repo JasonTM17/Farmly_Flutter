@@ -374,6 +374,10 @@ Future<({ProviderContainer container, GoRouter router})> _pumpSignedInApp(
   );
   addTearDown(container.dispose);
   final router = container.read(farmlyRouterProvider);
+  // Ambient/entrance motion renders statically so pumpAndSettle terminates.
+  tester.platformDispatcher.accessibilityFeaturesTestValue =
+      const FakeAccessibilityFeatures(disableAnimations: true);
+  addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
@@ -409,6 +413,10 @@ Future<({ProviderContainer container, GoRouter router})> _pumpServerSessionApp(
   );
   addTearDown(container.dispose);
   final router = container.read(farmlyRouterProvider);
+  // Ambient/entrance motion renders statically so pumpAndSettle terminates.
+  tester.platformDispatcher.accessibilityFeaturesTestValue =
+      const FakeAccessibilityFeatures(disableAnimations: true);
+  addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
@@ -474,6 +482,10 @@ _pumpAccountSwitchApp(
   );
   expect(session?.user.id, _session.user.id);
   final router = container.read(farmlyRouterProvider);
+  // Ambient/entrance motion renders statically so pumpAndSettle terminates.
+  tester.platformDispatcher.accessibilityFeaturesTestValue =
+      const FakeAccessibilityFeatures(disableAnimations: true);
+  addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
