@@ -43,8 +43,8 @@ void main() {
 
     expect(find.text('Bồn nước 5000 lít'), findsOneWidget);
     expect(find.text('Dung tích 5000 lít'), findsOneWidget);
-    expect(find.text('3200 lít còn lại'), findsOneWidget);
-    expect(find.textContaining('Đã dùng hôm nay: 450 lít'), findsOneWidget);
+    expect(find.text('3200 L'), findsOneWidget);
+    expect(find.text('450 L'), findsOneWidget);
     expect(find.textContaining('đồng hồ đọc tay'), findsWidgets);
     // No crop-assessment copy leaks onto a water zone.
     expect(find.textContaining('Đánh giá thủ công'), findsNothing);
@@ -62,7 +62,7 @@ void main() {
       findsOneWidget,
     );
     // A fabricated live level must never appear.
-    expect(find.textContaining('lít còn lại'), findsNothing);
+    expect(find.text('Mực nước'), findsNothing);
   });
 
   testWidgets('manual reading updates stored litres with provenance', (
@@ -79,7 +79,7 @@ void main() {
     await tester.tap(find.text('Lưu số đo'));
     await tester.pumpAndSettle();
 
-    expect(find.text('4100 lít còn lại'), findsOneWidget);
+    expect(find.text('4100 L'), findsOneWidget);
   });
 
   testWidgets('smart watering drafts a task and never actuates a device', (

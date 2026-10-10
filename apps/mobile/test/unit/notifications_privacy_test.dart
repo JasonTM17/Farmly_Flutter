@@ -209,7 +209,7 @@ void main() {
         PrivacyAction.deleteHistory,
         confirmation: 'confirmed-delete-history',
       );
-      final second = await repo.createRequest(
+      await repo.createRequest(
         PrivacyAction.deleteHistory,
         confirmation: 'confirmed-delete-history',
       );

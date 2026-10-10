@@ -598,18 +598,35 @@ class _WaterTankSection extends ConsumerWidget {
               ],
             )
           else
-            Text(
-              '$stored lít còn lại',
-              style: Theme.of(context).textTheme.headlineSmall,
+            // Metric trio (reference water detail): level % / stored /
+            // used-today — each column labeled, never fabricated.
+            Builder(
+              builder: (context) {
+                final storedNum = double.tryParse(stored);
+                final capNum = double.tryParse(tank.capacityLitres);
+                final level = (storedNum != null && capNum != null && capNum > 0)
+                    ? '${(storedNum / capNum * 100).round()}%'
+                    : '—';
+                return Row(
+                  children: [
+                    Expanded(
+                      child: _TankMetric(label: 'Mực nước', value: level),
+                    ),
+                    Expanded(
+                      child: _TankMetric(label: 'Còn lại', value: '$stored L'),
+                    ),
+                    Expanded(
+                      child: _TankMetric(
+                        label: 'Dùng hôm nay',
+                        value: tank.usedTodayLitres == null
+                            ? '—'
+                            : '${tank.usedTodayLitres} L',
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
-          if (tank.usedTodayLitres != null) ...[
-            const SizedBox(height: FarmSpacing.xs),
-            Text(
-              'Đã dùng hôm nay: ${tank.usedTodayLitres} lít',
-              style: Theme.of(context).textTheme.bodySmall,
-              softWrap: true,
-            ),
-          ],
           const SizedBox(height: FarmSpacing.sm),
           AsOfLabel(
             asOf: tank.asOf ?? '—',
@@ -1296,6 +1313,32 @@ class _ZoneSummaryCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// One labeled metric cell of the water-tank trio (reference detail).
+class _TankMetric extends StatelessWidget {
+  const _TankMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FarmThemeExtension.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(color: tokens.textSecondary),
+        ),
+        const SizedBox(height: 2),
+        Text(value, style: Theme.of(context).textTheme.titleMedium),
+      ],
     );
   }
 }
