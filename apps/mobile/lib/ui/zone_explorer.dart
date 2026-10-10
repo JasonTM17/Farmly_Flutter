@@ -148,7 +148,7 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
     final animation = Matrix4Tween(
       begin: _transform.value,
       end: target,
-    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeOutCubic));
+    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeInOutCubic));
     _zoomAnimation = animation..addListener(_onZoomTick);
     controller.forward();
   }
@@ -508,6 +508,19 @@ class IsoZoneTilePainter extends CustomPainter {
     _paintInterior(canvas, w, faceH);
     canvas.restore();
 
+    if (selected) {
+      // Breathing halo: the glow alpha rides the ambient phase so the
+      // active plot reads alive instead of just outlined.
+      final glow = 0.28 + 0.14 * math.sin(phase * 2 * math.pi);
+      canvas.drawRRect(
+        face.inflate(5),
+        Paint()
+          ..color = FarmlyColors.brandAction.withValues(alpha: glow)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 6
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+      );
+    }
     canvas.drawRRect(
       face,
       Paint()

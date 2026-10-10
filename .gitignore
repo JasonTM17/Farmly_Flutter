@@ -50,3 +50,6 @@ apps/mobile/.platform-scaffold-temp/
 /nul
 apps/mobile/nul
 apps/mobile/test/golden/failures/
+
+# Eclipse/JDT generated project settings
+**/.settings/
