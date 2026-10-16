@@ -1,10 +1,17 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/auth/auth_session_controller.dart';
 import 'core/auth/farmly_auth_models.dart';
+import 'core/network/farmly_api_client.dart';
+import 'core/storage/secure_secret_store.dart';
 import 'core/theme/farm_theme.dart';
+import 'features/demo/demo_providers.dart' show farmBaViId;
 import 'features/analytics/analytics_screen.dart';
 import 'features/app/app_router.dart' show ChatRouteArguments;
 import 'features/app/app_routes.dart';
@@ -51,7 +58,9 @@ const _previewScope = FarmlyOrganizationScope(
     // with the demo data shown across the preview.
     farms: <FarmlyDirectoryFarm>[
       FarmlyDirectoryFarm(
-        id: 'farm-bavi',
+        // Mirrors the demo farm id so the header, farm picker and sync scope
+        // stay coherent — FarmlyMutationScope requires UUID-shaped farm ids.
+        id: farmBaViId,
         name: 'Nông trại Ba Vì',
         status: FarmlyFarmStatus.active,
         grantRole: FarmlyFarmGrantRole.owner,
@@ -59,7 +68,7 @@ const _previewScope = FarmlyOrganizationScope(
     ],
   ),
   epoch: 1,
-  selectedFarmId: 'farm-bavi',
+  selectedFarmId: farmBaViId,
 );
 
 class _PreviewSessionController extends FarmlyAuthSessionController {
@@ -70,6 +79,123 @@ class _PreviewSessionController extends FarmlyAuthSessionController {
 class _PreviewScopeController extends SelectedOrganizationScopeController {
   @override
   FarmlyOrganizationScope? build() => _previewScope;
+}
+
+/// In-memory secret store for the preview — seeds a bearer token so the API
+/// client's `_send` passes its auth gate and requests reach the fake adapter
+/// below. Nothing touches flutter_secure_storage.
+final class _PreviewSecretStore implements FarmlySecretStore {
+  final Map<String, String> _values = <String, String>{
+    'farmly.auth.session.v1': 'preview-bearer-token',
+  };
+
+  @override
+  Future<String?> read(String key) async => _values[key];
+
+  @override
+  Future<void> write(String key, String value) async => _values[key] = value;
+
+  @override
+  Future<void> delete(String key) async => _values.remove(key);
+}
+
+/// In-memory API stub serving just the organizations surface, so the picker
+/// can select an org (loads its farm directory) and create one end-to-end in
+/// preview without a backend. Every other route returns a sanitized 404 so
+/// dependent screens render their translated error state instead of hanging
+/// on a dead connection.
+final class _PreviewApiAdapter implements HttpClientAdapter {
+  final List<Map<String, Object?>> _organizations = <Map<String, Object?>>[
+    _orgJson(_previewScope.organization.id, _previewScope.organization.name),
+  ];
+  int _created = 0;
+
+  static Map<String, Object?> _orgJson(String id, String name) =>
+      <String, Object?>{
+        'id': id,
+        'name': name,
+        'status': 'active',
+        'policyVersion': '1',
+        'membership': <String, Object?>{
+          'id': '55555555-5555-4555-8555-555555555555',
+          'role': 'owner',
+          'version': 1,
+        },
+      };
+
+  ResponseBody _json(Object? body, [int status = 200]) =>
+      ResponseBody.fromString(
+        jsonEncode(body),
+        status,
+        headers: <String, List<String>>{
+          Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+        },
+      );
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final path = options.uri.path;
+    if (options.method == 'GET' && path.endsWith('/v1/organizations')) {
+      return _json(<String, Object?>{
+        'data': <String, Object?>{'organizations': _organizations},
+        'page': <String, Object?>{'hasMore': false},
+      });
+    }
+    if (options.method == 'POST' && path.endsWith('/v1/organizations')) {
+      final raw = requestStream == null
+          ? '{}'
+          : utf8.decode(
+              await requestStream.fold<List<int>>(
+                <int>[],
+                (acc, chunk) => acc..addAll(chunk),
+              ),
+            );
+      final body = jsonDecode(raw);
+      final name = body is Map && body['name'] is String
+          ? body['name'] as String
+          : 'Tổ chức mới';
+      _created += 1;
+      final organization = _orgJson(
+        '66666666-6666-4666-8666-${_created.toString().padLeft(12, '0')}',
+        name,
+      );
+      _organizations.add(organization);
+      return _json(<String, Object?>{'data': organization});
+    }
+    final directoryMatch = RegExp(
+      r'/v1/organizations/([0-9a-f-]+)/farm-directory$',
+    ).firstMatch(path);
+    if (options.method == 'GET' && directoryMatch != null) {
+      final isPreviewOrg =
+          directoryMatch.group(1) == _previewScope.organization.id;
+      return _json(<String, Object?>{
+        'schemaVersion': 'farm-directory.v1',
+        'scopePolicyVersion': '1',
+        'continuityEpoch': '1',
+        'farms': isPreviewOrg
+            ? <Map<String, Object?>>[
+                <String, Object?>{
+                  'farmId': farmBaViId,
+                  'farmName': 'Nông trại Ba Vì',
+                  'status': 'active',
+                  'grantRole': 'owner',
+                },
+              ]
+            : const <Object?>[],
+        'nextCursor': null,
+      });
+    }
+    return _json(<String, Object?>{
+      'error': <String, Object?>{'code': 'NOT_FOUND'},
+    }, 404);
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 void main() {
@@ -193,6 +319,20 @@ void main() {
         selectedOrganizationScopeProvider.overrideWith(
           _PreviewScopeController.new,
         ),
+        // Seeded in-memory credentials so FarmlyApiClient._send passes its
+        // auth gate; requests land on the stub adapter below.
+        farmlySecretStoreProvider.overrideWithValue(_PreviewSecretStore()),
+        farmlyApiDioProvider.overrideWith((ref) {
+          final dio = Dio(
+            BaseOptions(
+              baseUrl: 'https://preview.invalid/',
+              headers: const <String, String>{'Accept': 'application/json'},
+            ),
+          );
+          dio.httpClientAdapter = _PreviewApiAdapter();
+          ref.onDispose(dio.close);
+          return dio;
+        }),
         // The org-picker screen reads this family; without an override it
         // calls the real API and spins forever in preview.
         farmlyOrganizationsProvider.overrideWith(

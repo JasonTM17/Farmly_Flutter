@@ -38,9 +38,6 @@ Desktop.ini
 /.farmly-local/
 
 # Local agent/tool session state (not project source)
-**/.mimosa/
-/.playwright-mcp/
-/.video_agent/
 /.zcode/workflow-drafts/
 /.zcode/workflow-runs/
 
@@ -68,7 +65,7 @@ apps/mobile/test/golden/failures/
 /.opencode/
 /.omp/
 /.grok/
-/.mimosa/
+**/.mimosa/
 /.playwright-mcp/
 /.video_agent/
 /.zcode/
@@ -78,13 +75,20 @@ apps/mobile/test/golden/failures/
 /plans/
 
 # Local scratch/patch artifacts
+/scratch/
 /_*.py
 # Scratch patch/case scripts (one-off migration patchers, machine paths)
 **/_p[0-9]*
 /.zcodeignore
 
-# Generated code (recreated by `npm run build` / postinstall prisma generate)
+# Generated code (recreated by `npm run build` / postinstall prisma generate,
+# `node contracts/scripts/build-contracts.mjs` and `flutter gen-l10n`)
 /apps/api/generated/
+/apps/mobile/lib/generated/
+/apps/mobile/lib/l10n/generated/
 
 # One-off debug scripts
 **/_dbg*
+
+# Local verification screenshots (emulator captures)
+/_shots/

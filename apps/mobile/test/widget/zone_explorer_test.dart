@@ -5,6 +5,7 @@ import 'package:farmly_mobile/core/theme/farm_theme.dart';
 import 'package:farmly_mobile/features/demo/demo_models.dart';
 import 'package:farmly_mobile/features/farm/farm_overview_screen.dart';
 import 'package:farmly_mobile/features/farm/zone_detail_screen.dart';
+import 'package:farmly_mobile/l10n/generated/app_localizations.dart';
 import 'package:farmly_mobile/ui/farm_scaffold.dart';
 import 'package:farmly_mobile/ui/zone_explorer.dart';
 
@@ -53,6 +54,11 @@ void main() {
   }) {
     return MaterialApp(
       theme: buildFarmTheme(),
+      // Explorer widgets read arb strings — pin the vi locale the assertions
+      // below expect.
+      locale: const Locale('vi'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       // Deterministic frames: ambient loops stay static so pumpAndSettle
       // terminates and entrances render at their resting state.
       builder: (context, child) => MediaQuery(
@@ -119,7 +125,25 @@ void main() {
     tester,
   ) async {
     String? selected;
-    await tester.pumpWidget(explorerHarness(onSelect: (id) => selected = id));
+    // Stateful: the parent echoes selectedZoneId back into ZoneScene, which
+    // is the single camera path (didUpdateWidget → focus/reset).
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) => explorerHarness(
+          selectedId: selected,
+          onSelect: (id) => setState(() => selected = id),
+        ),
+      ),
+    );
+    // The whole-board fit is applied post-frame — settle before tapping so
+    // tiles sit at their transformed positions inside the clipped viewport.
+    await tester.pumpAndSettle();
+
+    final viewer = tester.widget<InteractiveViewer>(
+      find.byType(InteractiveViewer),
+    );
+    final restScale = viewer.transformationController?.value
+        .getMaxScaleOnAxis();
 
     await tester.tap(hotspotOf(zones[1].name));
     // InkWell defers onTap until the double-tap timeout (~300ms) elapses.
@@ -127,9 +151,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(selected, zones[1].id);
 
-    final viewer = tester.widget<InteractiveViewer>(
-      find.byType(InteractiveViewer),
-    );
     final scale = viewer.transformationController?.value.getMaxScaleOnAxis();
     expect(scale, isNotNull);
     expect(scale!, greaterThan(1.0));
@@ -141,9 +162,10 @@ void main() {
     expect(resetSize.height, greaterThanOrEqualTo(48));
     await tester.tap(reset);
     await tester.pumpAndSettle();
+    // Reset returns to the fitted board transform, not raw identity.
     expect(
       viewer.transformationController?.value.getMaxScaleOnAxis(),
-      closeTo(1.0, 0.001),
+      closeTo(restScale!, 0.001),
     );
   });
 
@@ -154,6 +176,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildFarmTheme(),
+        locale: const Locale('vi'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: AccessibleZoneList(
             zones: zones,

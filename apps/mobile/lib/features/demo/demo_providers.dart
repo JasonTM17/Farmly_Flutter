@@ -8,7 +8,9 @@ import 'demo_models.dart';
 
 const _orgHtxId = 'org-htx';
 const _orgHoId = 'org-ho';
-const farmBaViId = 'farm-bavi';
+// Demo ids stay in UUID shape so scope validation (FarmlyMutationScope farm
+// ids must be UUIDs) accepts the demo scope — the preview mirrors this id.
+const farmBaViId = '33333333-3333-4333-8333-333333333333';
 const _farmTrongTaiId = 'farm-trongtai';
 const farmMoiId = 'farm-moi';
 
