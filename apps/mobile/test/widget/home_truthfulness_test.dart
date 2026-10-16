@@ -24,6 +24,9 @@ void main() {
     return ProviderScope(
       child: MaterialApp(
         theme: buildFarmTheme(),
+        // Detail widgets read arb strings — pin the vi locale the vi
+        // assertions below expect.
+        locale: const Locale('vi'),
         // Deterministic frames: ambient loops render statically
         // so pumpAndSettle terminates.
         builder: (context, child) => MediaQuery(
@@ -65,6 +68,8 @@ void main() {
         ],
         child: MaterialApp(
           theme: buildFarmTheme(),
+          // Same vi pin as the main harness — assertions expect vi strings.
+          locale: const Locale('vi'),
           // Deterministic frames: ambient loops render statically
           // so pumpAndSettle terminates.
           builder: (context, child) => MediaQuery(
@@ -142,6 +147,8 @@ void main() {
       ProviderScope(
         child: MaterialApp(
           theme: buildFarmTheme(),
+          // Same vi pin as the main harness — assertions expect vi strings.
+          locale: const Locale('vi'),
           // Deterministic frames: ambient loops render statically
           // so pumpAndSettle terminates.
           builder: (context, child) => MediaQuery(

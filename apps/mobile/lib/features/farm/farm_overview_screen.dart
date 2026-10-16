@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/format/decimal_format.dart';
 import '../../core/theme/farmly_spacing.dart';
 import '../../core/theme/farmly_theme_extension.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../ui/crop_components.dart';
 import '../../ui/farm_card.dart';
 import '../../ui/farm_scaffold.dart';
@@ -55,7 +56,7 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
     );
     if (created != true) return;
     if (!context.mounted) return;
-    showFarmToast(context, 'Đã lưu trên thiết bị');
+    showFarmToast(context, AppLocalizations.of(context).savedLocallyToast);
   }
 
   @override
@@ -74,10 +75,11 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
     final selectedZone = zones
         .where((zone) => zone.id == _selectedZoneId)
         .firstOrNull;
+    final l10n = AppLocalizations.of(context);
 
     return FarmScaffold(
       topBar: FarmTopBar(
-        title: farm?.name ?? 'Nông trại',
+        title: farm?.name ?? l10n.farmOverviewFallbackTitle,
         subtitle:
             '${farm?.location ?? ''} · '
             '${formatAreaHectares(farm?.areaM2) ?? '—'} ha · '
@@ -85,9 +87,9 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
         actions: [
           Semantics(
             button: true,
-            label: 'Đổi nông trại',
+            label: l10n.changeFarm,
             child: IconButton(
-              tooltip: 'Đổi nông trại',
+              tooltip: l10n.changeFarm,
               icon: const Icon(Icons.swap_horiz_outlined),
               onPressed: () => showFarmPickerSheet(context),
             ),
@@ -115,21 +117,18 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
                 onSwitchScope: () => showFarmPickerSheet(context),
               ),
               DemoLoadState.permissionDenied => PermissionDeniedView(
-                message:
-                    'Bạn chỉ có quyền xem ở tổ chức khác. Đổi phạm vi để tiếp tục.',
+                message: l10n.farmOverviewPermissionBody,
                 onSwitchScope: () => showFarmPickerSheet(context),
               ),
               DemoLoadState.empty => EmptyStateView(
-                title: 'Chưa có vùng nào',
-                message:
-                    'Nông trại này chưa có vùng trồng hoặc khu chăn nuôi. '
-                    'Tạo vùng đầu tiên hoặc xem nông trại khác.',
+                title: l10n.zonesEmptyTitle,
+                message: l10n.zonesEmptyBody,
                 // §5 My Farm row: a new farm needs a working no-zone CTA,
                 // not only the scope switch.
-                actionLabel: 'Tạo vùng đầu tiên',
+                actionLabel: l10n.createFirstZone,
                 onAction: () =>
                     _openCreateZoneSheet(context, ref, state.selectedFarmId),
-                secondaryActionLabel: 'Đổi nông trại khác',
+                secondaryActionLabel: l10n.switchFarmOther,
                 onSecondaryAction: () => showFarmPickerSheet(context),
               ),
               DemoLoadState.offline ||
@@ -147,7 +146,7 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
                   ZoneChipStrip(
                     zones: zones,
                     selectedZoneId: _selectedZoneId,
-                    overviewLabel: 'Tổng quan',
+                    overviewLabel: l10n.overviewChip,
                     onSelect: (zoneId) =>
                         setState(() => _selectedZoneId = zoneId),
                   ),
@@ -187,8 +186,7 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
                         const SizedBox(width: FarmSpacing.sm),
                         Expanded(
                           child: Text(
-                            'Chạm vào một vùng để khám phá · '
-                            '${zones.length} vùng · ${animals.length} con vật',
+                            l10n.zoneTapHint(zones.length, animals.length),
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(
                                   color: FarmThemeExtension.of(
@@ -218,7 +216,7 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
                       FarmSpacing.sm,
                     ),
                     child: Text(
-                      'Khám phá',
+                      l10n.exploreSection,
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),
@@ -256,6 +254,7 @@ class _ZonePanel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(demoDataProvider);
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     final selectedZone = zone;
     if (selectedZone == null) {
       return const SizedBox.shrink();
@@ -287,7 +286,7 @@ class _ZonePanel extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    _zoneKindLabel(selectedZone.kind),
+                    _zoneKindLabel(l10n, selectedZone.kind),
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       color: tokens.textPrimary,
                     ),
@@ -322,16 +321,16 @@ class _ZonePanel extends ConsumerWidget {
                 padding: const EdgeInsets.only(bottom: FarmSpacing.md),
                 child: Semantics(
                   button: true,
-                  label: 'Mở khu chăn nuôi, $animalsCount con',
+                  label: l10n.openLivestockSemantics(animalsCount),
                   child: FilledButton.tonal(
                     onPressed: () => context.push(AppRoutes.livestock),
-                    child: const Text('Mở khu chăn nuôi'),
+                    child: Text(l10n.openLivestock),
                   ),
                 ),
               ),
             if (crops.isEmpty && selectedZone.kind != DemoZoneKind.livestock)
               Text(
-                'Vùng này chưa có cây trồng đang theo dõi.',
+                l10n.zoneNoTrackedCrops,
                 style: Theme.of(
                   context,
                 ).textTheme.bodySmall?.copyWith(color: tokens.textSecondary),
@@ -344,12 +343,12 @@ class _ZonePanel extends ConsumerWidget {
   }
 }
 
-String _zoneKindLabel(DemoZoneKind kind) => switch (kind) {
-  DemoZoneKind.crop => 'Trồng trọt',
-  DemoZoneKind.livestock => 'Chăn nuôi',
-  DemoZoneKind.water => 'Nước',
-  DemoZoneKind.storage => 'Kho',
-  DemoZoneKind.house => 'Nhà',
+String _zoneKindLabel(AppLocalizations l10n, DemoZoneKind kind) => switch (kind) {
+  DemoZoneKind.crop => l10n.zoneKindCrop,
+  DemoZoneKind.livestock => l10n.zoneKindLivestock,
+  DemoZoneKind.water => l10n.zoneKindWater,
+  DemoZoneKind.storage => l10n.zoneKindStorage,
+  DemoZoneKind.house => l10n.zoneKindHouse,
 };
 
 /// Minimal create-zone sheet backing the My Farm no-zone CTA (spec 02 §5):
@@ -377,7 +376,9 @@ class _CreateZoneSheetState extends ConsumerState<_CreateZoneSheet> {
   void _save() {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      setState(() => _nameError = 'Nhập tên vùng.');
+      setState(
+        () => _nameError = AppLocalizations.of(context).zoneNameRequired,
+      );
       return;
     }
     ref
@@ -397,6 +398,7 @@ class _CreateZoneSheetState extends ConsumerState<_CreateZoneSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -410,7 +412,7 @@ class _CreateZoneSheetState extends ConsumerState<_CreateZoneSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Tạo vùng đầu tiên',
+              l10n.createFirstZone,
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: FarmSpacing.lg),
@@ -418,8 +420,8 @@ class _CreateZoneSheetState extends ConsumerState<_CreateZoneSheet> {
               controller: _nameController,
               autofocus: true,
               decoration: InputDecoration(
-                labelText: 'Tên vùng',
-                hintText: 'Ví dụ: Luống hành tím',
+                labelText: l10n.zoneNameLabel,
+                hintText: l10n.zoneNameHint,
                 errorText: _nameError,
               ),
               onSubmitted: (_) => _save(),
@@ -428,7 +430,7 @@ class _CreateZoneSheetState extends ConsumerState<_CreateZoneSheet> {
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Loại vùng',
+                l10n.zoneKindLabel,
                 style: Theme.of(context).textTheme.titleSmall,
               ),
             ),
@@ -439,18 +441,18 @@ class _CreateZoneSheetState extends ConsumerState<_CreateZoneSheet> {
               children: [
                 for (final kind in DemoZoneKind.values)
                   ChoiceChip(
-                    label: Text(_zoneKindLabel(kind)),
+                    label: Text(_zoneKindLabel(l10n, kind)),
                     selected: _kind == kind,
                     onSelected: (_) => setState(() => _kind = kind),
                   ),
               ],
             ),
             const SizedBox(height: FarmSpacing.md),
-            const AsOfLabel(asOf: _demoToday, source: 'bạn nhập'),
+            AsOfLabel(asOf: _demoToday, source: l10n.enteredByYou),
             const SizedBox(height: FarmSpacing.lg),
             FilledButton(
               onPressed: _save,
-              child: const Text('Lưu trên thiết bị'),
+              child: Text(l10n.saveOnDevice),
             ),
           ],
         ),

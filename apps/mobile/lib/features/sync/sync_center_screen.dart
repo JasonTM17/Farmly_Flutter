@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/sync/sync_providers.dart';
 import '../../core/theme/farmly_spacing.dart';
 import '../../core/theme/farmly_theme_extension.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../ui/farm_card.dart';
 import '../../ui/pickers.dart';
 import '../../ui/screen_states.dart';
@@ -24,10 +25,11 @@ class SyncCenterScreen extends ConsumerWidget {
       'sync',
       dataEmpty: state.syncItems.isEmpty,
     );
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(title: const Text('Trung tâm đồng bộ')),
+      appBar: AppBar(title: Text(l10n.syncCenterTitle)),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -49,17 +51,13 @@ class SyncCenterScreen extends ConsumerWidget {
                       ref.read(demoScreenStateProvider.notifier).reset('sync'),
                 ),
                 DemoLoadState.permissionDenied => PermissionDeniedView(
-                  message:
-                      'Không thể xem hàng đợi đồng bộ của phạm vi bạn vừa mất '
-                      'quyền. Nội dung đã được cách ly an toàn.',
+                  message: l10n.syncQueueDeniedBody,
                   // Same "Đổi phạm vi" action as every other screen (§5).
                   onSwitchScope: () => showFarmPickerSheet(context),
                 ),
-                DemoLoadState.empty => const EmptyStateView(
-                  title: 'Không có mục nào chờ đồng bộ',
-                  message:
-                      'Mọi thay đổi của bạn đã được đồng bộ. Bản ghi mới khi '
-                      'offline sẽ xuất hiện ở đây.',
+                DemoLoadState.empty => EmptyStateView(
+                  title: l10n.syncEmptyTitle,
+                  message: l10n.syncEmptyBody,
                 ),
                 DemoLoadState.offline ||
                 DemoLoadState.pendingConflict ||
@@ -86,7 +84,8 @@ class _SyncContent extends ConsumerWidget {
       final farm = farmById(state, item.farmId);
       final org = organizationById(state, farm?.organizationId);
       final scopeLabel =
-          '${org?.name ?? 'Tổ chức'} · ${farm?.name ?? 'Nông trại'}';
+          '${org?.name ?? AppLocalizations.of(context).orgFallback}'
+          ' · ${farm?.name ?? AppLocalizations.of(context).farmFallback}';
       grouped.putIfAbsent(scopeLabel, () => []).add(item);
     }
 
@@ -132,69 +131,123 @@ class _LiveSyncSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (ref.watch(farmlySyncScopeProvider) == null) {
-      return const SizedBox.shrink();
-    }
     final tokens = FarmThemeExtension.of(context);
-    final status = ref.watch(syncStatusProvider).value;
-    final running = status?.running ?? false;
+    final l10n = AppLocalizations.of(context);
+    // An invalid scope surfaces as AsyncError — the section renders a
+    // translated error panel with an explicit retry instead of letting the
+    // provider exception escape into the build (spec02 §5).
+    return ref.watch(farmlySyncScopeProvider).when(
+      data: (scope) {
+        if (scope == null) return const SizedBox.shrink();
+        final status = ref.watch(syncStatusProvider).value;
+        final running = status?.running ?? false;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: FarmSpacing.md),
-      child: FarmCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+        return Padding(
+          padding: const EdgeInsets.only(bottom: FarmSpacing.md),
+          child: FarmCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.sync, size: 18, color: tokens.brandAction),
-                const SizedBox(width: FarmSpacing.xs),
-                Expanded(
-                  child: Text(
-                    'Đồng bộ máy chủ',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: tokens.brandAction,
+                Row(
+                  children: [
+                    Icon(Icons.sync, size: 18, color: tokens.brandAction),
+                    const SizedBox(width: FarmSpacing.xs),
+                    Expanded(
+                      child: Text(
+                        AppLocalizations.of(context).serverSyncLabel,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: tokens.brandAction,
+                        ),
+                        softWrap: true,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: FarmSpacing.xs),
+                Text(
+                  '${AppLocalizations.of(context).pendingCountLabel(status?.pendingCount ?? 0)}'
+                  '${status != null && status.blockedCount > 0 ? AppLocalizations.of(context).blockedCountSuffix(status.blockedCount) : ''}'
+                  '${status != null && status.conflictCount > 0 ? AppLocalizations.of(context).conflictCountSuffix(status.conflictCount) : ''}',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  softWrap: true,
+                ),
+                if (status?.lastError != null)
+                  Text(
+                    AppLocalizations.of(context).lastErrorLabel(status!.lastError!),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: tokens.textSecondary,
                     ),
                     softWrap: true,
+                  ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: running
+                        ? null
+                        : () => ref
+                            .read(syncStatusProvider.notifier)
+                            .synchronize(),
+                    icon: running
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.sync, size: 16),
+                    label: Text(
+                      running
+                          ? AppLocalizations.of(context).syncRunningLabel
+                          : AppLocalizations.of(context).syncNowLabel,
+                    ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: FarmSpacing.xs),
-            Text(
-              '${status?.pendingCount ?? 0} mục chờ'
-              '${status != null && status.blockedCount > 0 ? ' · ${status.blockedCount} bị chặn' : ''}'
-              '${status != null && status.conflictCount > 0 ? ' · ${status.conflictCount} xung đột' : ''}',
-              style: Theme.of(context).textTheme.bodyMedium,
-              softWrap: true,
-            ),
-            if (status?.lastError != null)
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, _) => Padding(
+        padding: const EdgeInsets.only(bottom: FarmSpacing.md),
+        child: FarmCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.sync_problem_outlined,
+                    size: 18,
+                    color: tokens.semanticError,
+                  ),
+                  const SizedBox(width: FarmSpacing.xs),
+                  Expanded(
+                    child: Text(
+                      l10n.syncScopeErrorTitle,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: tokens.semanticError,
+                      ),
+                      softWrap: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: FarmSpacing.xs),
               Text(
-                'Lỗi gần nhất: ${status!.lastError}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: tokens.textSecondary,
-                ),
+                l10n.syncScopeErrorBody,
+                style: Theme.of(context).textTheme.bodyMedium,
                 softWrap: true,
               ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: running
-                    ? null
-                    : () => ref
-                        .read(syncStatusProvider.notifier)
-                        .synchronize(),
-                icon: running
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.sync, size: 16),
-                label: Text(running ? 'Đang đồng bộ…' : 'Đồng bộ ngay'),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => ref.invalidate(farmlySyncScopeProvider),
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: Text(l10n.retry),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -209,9 +262,10 @@ class _PendingCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     final waiting = item.status == DemoSyncStatus.syncing
-        ? 'Đang đồng bộ'
-        : 'Chờ mạng';
+        ? l10n.syncingShort
+        : l10n.waitingNetwork;
     return FarmCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -238,7 +292,7 @@ class _PendingCard extends ConsumerWidget {
           const SizedBox(height: FarmSpacing.xs),
           Text(item.localSummary, style: Theme.of(context).textTheme.bodyMedium, softWrap: true),
           Text(
-            '${item.updatedLabel} · lưu trên thiết bị',
+            '${item.updatedLabel} · ${AppLocalizations.of(context).savedOnDeviceSuffix}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: tokens.textSecondary,
             ),
@@ -249,9 +303,12 @@ class _PendingCard extends ConsumerWidget {
             child: TextButton(
               onPressed: () {
                 ref.read(demoDataProvider.notifier).markSyncItemSynced(item.id);
-                showFarmToast(context, 'Đã đồng bộ (mô phỏng).');
+                showFarmToast(
+                  context,
+                  AppLocalizations.of(context).syncSimulatedToast,
+                );
               },
-              child: const Text('Đồng bộ ngay (mô phỏng)'),
+              child: Text(AppLocalizations.of(context).syncNowSimulated),
             ),
           ),
         ],
@@ -282,7 +339,7 @@ class _ConflictCard extends ConsumerWidget {
               const SizedBox(width: FarmSpacing.xs),
               Expanded(
                 child: Text(
-                  '${item.operationType} · xung đột',
+                  '${item.operationType} · ${AppLocalizations.of(context).conflictLabel}',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     color: tokens.semanticWarning,
                   ),
@@ -294,7 +351,8 @@ class _ConflictCard extends ConsumerWidget {
           const SizedBox(height: FarmSpacing.sm),
           Semantics(
             container: true,
-            label: 'Bản của bạn: ${item.localSummary}',
+            label:
+                '${AppLocalizations.of(context).yourVersionLabel}: ${item.localSummary}',
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.all(FarmSpacing.md),
@@ -303,7 +361,7 @@ class _ConflictCard extends ConsumerWidget {
                 border: Border.all(color: tokens.brandAction),
               ),
               child: Text(
-                'Bản của bạn: ${item.localSummary}',
+                '${AppLocalizations.of(context).yourVersionLabel}: ${item.localSummary}',
                 style: Theme.of(context).textTheme.bodyMedium,
                 softWrap: true,
               ),
@@ -312,7 +370,8 @@ class _ConflictCard extends ConsumerWidget {
           const SizedBox(height: FarmSpacing.sm),
           Semantics(
             container: true,
-            label: 'Máy chủ hiện tại: ${item.serverSummary ?? ''}',
+            label:
+                '${AppLocalizations.of(context).serverNowLabel}: ${item.serverSummary ?? ''}',
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.all(FarmSpacing.md),
@@ -321,8 +380,8 @@ class _ConflictCard extends ConsumerWidget {
                 border: Border.all(color: tokens.divider),
               ),
               child: Text(
-                'Máy chủ: ${item.serverSummary ?? 'không có dữ liệu'}'
-                '${item.baseVersion == null ? '' : ' · phiên gốc ${item.baseVersion}'}'
+                '${AppLocalizations.of(context).serverLabel}: ${item.serverSummary ?? AppLocalizations.of(context).noServerData}'
+                '${item.baseVersion == null ? '' : ' · ${AppLocalizations.of(context).baseVersionPrefix} ${item.baseVersion}'}'
                 '${item.asOfLabel == null ? '' : ' · ${item.asOfLabel}'}',
                 style: Theme.of(context).textTheme.bodyMedium,
                 softWrap: true,
@@ -331,7 +390,7 @@ class _ConflictCard extends ConsumerWidget {
           ),
           const SizedBox(height: FarmSpacing.sm),
           Text(
-            'Chọn một hướng: không có tự động gộp số liệu.',
+            AppLocalizations.of(context).chooseDirectionNote,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: tokens.textSecondary,
             ),
@@ -342,7 +401,7 @@ class _ConflictCard extends ConsumerWidget {
             alignment: Alignment.centerLeft,
             child: TextButton(
               onPressed: () => showConflictCompareSheet(context, item: item),
-              child: const Text('So sánh chi tiết'),
+              child: Text(AppLocalizations.of(context).compareDetailLabel),
             ),
           ),
           const SizedBox(height: FarmSpacing.xs),
@@ -353,9 +412,12 @@ class _ConflictCard extends ConsumerWidget {
               OutlinedButton(
                 onPressed: () {
                   ref.read(demoDataProvider.notifier).removeSyncItem(item.id);
-                  showFarmToast(context, 'Đã giữ bản máy chủ.');
+                  showFarmToast(
+                    context,
+                    AppLocalizations.of(context).keepServerToast,
+                  );
                 },
-                child: const Text('Giữ bản máy chủ'),
+                child: Text(AppLocalizations.of(context).keepServerVersion),
               ),
               FilledButton(
                 onPressed: () {
@@ -364,17 +426,20 @@ class _ConflictCard extends ConsumerWidget {
                       .resolveConflictWithReplacement(item.id);
                   showFarmToast(
                     context,
-                    'Đã tạo intent thay thế — chờ đồng bộ lại.',
+                    AppLocalizations.of(context).replaceIntentToast,
                   );
                 },
-                child: const Text('Gửi bản của bạn'),
+                child: Text(AppLocalizations.of(context).sendYourVersion),
               ),
               TextButton(
                 onPressed: () {
                   ref.read(demoDataProvider.notifier).removeSyncItem(item.id);
-                  showFarmToast(context, 'Đã lưu nháp trên thiết bị.');
+                  showFarmToast(
+                    context,
+                    AppLocalizations.of(context).draftSavedToast,
+                  );
                 },
-                child: const Text('Lưu nháp'),
+                child: Text(AppLocalizations.of(context).saveDraft),
               ),
             ],
           ),

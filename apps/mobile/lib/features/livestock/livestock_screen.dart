@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/format/display_format.dart';
 import '../../core/theme/farmly_spacing.dart';
 import '../../core/theme/farmly_theme_extension.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../ui/farm_card.dart';
 import '../../ui/form_fields.dart';
 import '../../ui/illustrations.dart';
@@ -53,6 +55,7 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
 
     final feedingDone = feeding.fold<int>(0, (sum, entry) => sum + entry.done);
     final feedingTotal = feeding.fold<int>(0, (sum, entry) => sum + entry.total);
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -60,7 +63,7 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Khu chăn nuôi'),
+            Text(l10n.livestockScreenTitle),
             if (farm != null)
               Text(
                 farm.name,
@@ -99,15 +102,13 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                   onSwitchScope: () => showFarmPickerSheet(context),
                 ),
                 DemoLoadState.permissionDenied => PermissionDeniedView(
-                  message: 'Bạn không có quyền xem khu chăn nuôi của nông trại này.',
+                  message: l10n.livestockPermissionBody,
                   onSwitchScope: () => showFarmPickerSheet(context),
                 ),
                 DemoLoadState.empty => EmptyStateView(
-                  title: 'Chưa có vật nuôi nào',
-                  message:
-                      'Khu chăn nuôi của nông trại này đang trống. '
-                      'Thêm con vật đầu tiên hoặc đổi nông trại.',
-                  actionLabel: 'Đổi nông trại',
+                  title: l10n.livestockEmptyTitle,
+                  message: l10n.livestockEmptyBody,
+                  actionLabel: l10n.changeFarm,
                   onAction: () => showFarmPickerSheet(context),
                 ),
                 DemoLoadState.offline ||
@@ -125,29 +126,30 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                       const SizedBox(height: FarmSpacing.md),
                     ],
                     FarmCard(
-                      semanticsLabel:
-                          'Tổng đàn $totalHeadcount con — theo dõi từng con '
-                          '$trackedHeadcount, đàn theo lô $batchHeadcount. '
-                          'Cho ăn hôm nay $feedingDone trên $feedingTotal lượt.',
+                      semanticsLabel: l10n.herdTotalsSemantics(
+                        totalHeadcount,
+                        trackedHeadcount,
+                        batchHeadcount,
+                        feedingDone,
+                        feedingTotal,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Tổng đàn: $totalHeadcount con',
+                            l10n.herdTotalLine(totalHeadcount),
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                           const SizedBox(height: FarmSpacing.xs),
                           Text(
-                            'Theo dõi từng con: $trackedHeadcount · '
-                            'Đàn theo lô: $batchHeadcount',
+                            l10n.herdSplitLine(trackedHeadcount, batchHeadcount),
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: tokens.textSecondary),
                             softWrap: true,
                           ),
                           const SizedBox(height: FarmSpacing.xs),
                           Text(
-                            'Cho ăn hôm nay: $feedingDone/$feedingTotal lượt '
-                            '(theo ngày của nông trại).',
+                            l10n.feedingTodayLine(feedingDone, feedingTotal),
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: tokens.textSecondary),
                             softWrap: true,
@@ -164,7 +166,7 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                             children: [
                               Expanded(
                                 child: Text(
-                                  'Cho ăn hôm nay',
+                                  l10n.feedingSectionTitle,
                                   style: Theme.of(
                                     context,
                                   ).textTheme.titleSmall,
@@ -182,7 +184,10 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Text(
-                                  '$feedingDone/$feedingTotal xong',
+                                  l10n.feedingProgressBadge(
+                                    feedingDone,
+                                    feedingTotal,
+                                  ),
                                   style: Theme.of(
                                     context,
                                   ).textTheme.labelSmall?.copyWith(
@@ -197,7 +202,7 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                           FeedingTimeline(entries: feeding),
                           const SizedBox(height: FarmSpacing.sm),
                           Text(
-                            'Theo ngày của nông trại.',
+                            l10n.feedingFarmDayNote,
                             style: Theme.of(
                               context,
                             ).textTheme.labelSmall?.copyWith(
@@ -209,12 +214,12 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                     ),
                     const SizedBox(height: FarmSpacing.md),
                     Text(
-                      'Nhóm vật nuôi',
+                      l10n.herdGroupsTitle,
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Chạm một nhóm để xem danh sách.',
+                      l10n.herdGroupsHint,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: tokens.textSecondary,
                       ),
@@ -229,7 +234,7 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                             child: Semantics(
                               button: true,
                               selected: _categoryFilter == null,
-                              label: 'Nhóm tất cả, $totalHeadcount con',
+                              label: l10n.allGroupsSemantics(totalHeadcount),
                               child: SizedBox(
                                 width: 96,
                                 child: _AllCategoryCard(
@@ -276,14 +281,14 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                           child: Column(
                             children: [
                               Text(
-                                'Không có đàn nào trong nhóm này',
+                                l10n.noHerdsInGroupTitle,
                                 style: Theme.of(context).textTheme.titleSmall,
                                 textAlign: TextAlign.center,
                                 softWrap: true,
                               ),
                               const SizedBox(height: FarmSpacing.xs),
                               Text(
-                                'Chọn nhóm khác để xem danh sách.',
+                                l10n.noHerdsInGroupBody,
                                 style: Theme.of(context).textTheme.bodySmall
                                     ?.copyWith(color: tokens.textSecondary),
                                 softWrap: true,
@@ -409,7 +414,7 @@ class _HerdSection extends ConsumerWidget {
       builder: (_) => _ProductionDialog(herd: herd),
     );
     if (saved != true || !context.mounted) return;
-    showFarmToast(context, 'Đã lưu trên thiết bị');
+    showFarmToast(context, AppLocalizations.of(context).savedLocallyToast);
   }
 
   Future<void> _recordMovement(
@@ -421,30 +426,31 @@ class _HerdSection extends ConsumerWidget {
       builder: (_) => _BatchMovementDialog(herd: herd),
     );
     if (saved != true || !context.mounted) return;
-    showFarmToast(context, 'Đã lưu biến động đàn trên thiết bị');
+    showFarmToast(context, AppLocalizations.of(context).movementSavedToast);
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
+    final modeLabel = herdModeLabel(l10n, herd.mode);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Semantics(
           container: true,
-          label:
-              'Đàn ${herd.species}, ${herd.mode.viLabel}, $headcount con',
+          label: l10n.herdSemantics(herd.species, modeLabel, headcount),
           child: Row(
             children: [
               Expanded(
                 child: Text(
-                  '${herd.species} · ${herd.mode.viLabel}',
+                  '${herd.species} · $modeLabel',
                   style: Theme.of(context).textTheme.titleSmall,
                   softWrap: true,
                 ),
               ),
               Text(
-                '$headcount con',
+                l10n.headcountSuffix(headcount),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: tokens.brandAction,
                 ),
@@ -461,8 +467,7 @@ class _HerdSection extends ConsumerWidget {
                 const SizedBox(width: FarmSpacing.lg),
                 Expanded(
                   child: Text(
-                    'Đàn theo lô $headcount con — không có hồ sơ từng con. '
-                    'Số lượng cập nhật qua các đợt nhập/xuất.',
+                    l10n.batchHerdNote(headcount),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: tokens.textSecondary,
                     ),
@@ -484,8 +489,8 @@ class _HerdSection extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: FarmSpacing.xs),
               child: Text(
-                '${_productLabel(record.product)}: ${record.quantity} '
-                '${record.unit} · ${record.recordedOn}',
+                '${_productLabel(l10n, record.product)}: ${record.quantity} '
+                '${record.unit} · ${formatDisplayDate(record.recordedOn, l10n.localeName)}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: FarmThemeExtension.of(context).textSecondary,
                 ),
@@ -501,7 +506,7 @@ class _HerdSection extends ConsumerWidget {
             OutlinedButton.icon(
               onPressed: readOnly ? null : () => _recordProduction(context, ref),
               icon: const Icon(Icons.add_chart_outlined),
-              label: const Text('Ghi sản lượng'),
+              label: Text(l10n.recordProduction),
             ),
             if (herd.mode == DemoHerdMode.batch)
               OutlinedButton.icon(
@@ -509,7 +514,7 @@ class _HerdSection extends ConsumerWidget {
                     ? null
                     : () => _recordMovement(context, ref),
                 icon: const Icon(Icons.swap_vert_outlined),
-                label: const Text('Nhập/xuất đàn'),
+                label: Text(l10n.batchMovement),
               ),
           ],
         ),
@@ -518,10 +523,10 @@ class _HerdSection extends ConsumerWidget {
   }
 }
 
-String _productLabel(String product) => switch (product) {
-  'milk' => 'Sữa',
-  'eggs' => 'Trứng',
-  'weight' => 'Cân nặng',
+String _productLabel(AppLocalizations l10n, String product) => switch (product) {
+  'milk' => l10n.productMilk,
+  'eggs' => l10n.productEggs,
+  'weight' => l10n.productWeight,
   _ => product,
 };
 
@@ -542,27 +547,28 @@ class _ProductionDialogState extends ConsumerState<_ProductionDialog> {
   String _product = 'milk';
   String? _quantityError;
 
-  static const _productLabels = {
-    'milk': 'Sữa',
-    'eggs': 'Trứng',
-    'weight': 'Cân nặng',
-  };
-  static const _productUnits = {
-    'milk': 'lít',
-    'eggs': 'quả',
-    'weight': 'kg',
-  };
-
   @override
   void dispose() {
     _quantityController.dispose();
     super.dispose();
   }
 
+  Map<String, String> _productLabels(AppLocalizations l10n) => {
+    'milk': l10n.productMilk,
+    'eggs': l10n.productEggs,
+    'weight': l10n.productWeight,
+  };
+  Map<String, String> _productUnits(AppLocalizations l10n) => {
+    'milk': l10n.unitLitres,
+    'eggs': l10n.unitEggs,
+    'weight': l10n.unitKg,
+  };
+
   void _save() {
+    final l10n = AppLocalizations.of(context);
     final raw = _quantityController.text.trim().replaceAll(',', '.');
     if (raw.isEmpty || double.tryParse(raw) == null) {
-      setState(() => _quantityError = 'Nhập sản lượng hợp lệ.');
+      setState(() => _quantityError = l10n.productionRequired);
       return;
     }
     ref
@@ -571,23 +577,26 @@ class _ProductionDialogState extends ConsumerState<_ProductionDialog> {
           widget.herd.id,
           product: _product,
           quantity: raw,
-          unit: _productUnits[_product]!,
+          unit: _productUnits(l10n)[_product]!,
         );
     Navigator.of(context).pop(true);
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final productLabels = _productLabels(l10n);
+    final productUnits = _productUnits(l10n);
     return AlertDialog(
-      title: Text('Sản lượng — ${widget.herd.species}'),
+      title: Text(l10n.productionDialogTitle(widget.herd.species)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           DropdownButtonFormField<String>(
             initialValue: _product,
-            decoration: const InputDecoration(labelText: 'Loại sản lượng'),
+            decoration: InputDecoration(labelText: l10n.productTypeLabel),
             items: [
-              for (final entry in _productLabels.entries)
+              for (final entry in productLabels.entries)
                 DropdownMenuItem(value: entry.key, child: Text(entry.value)),
             ],
             onChanged: (next) => setState(() => _product = next!),
@@ -596,7 +605,7 @@ class _ProductionDialogState extends ConsumerState<_ProductionDialog> {
           DecimalField(
             controller: _quantityController,
             autofocus: true,
-            labelText: 'Số lượng (${_productUnits[_product]})',
+            labelText: l10n.quantityLabel(productUnits[_product]!),
             errorText: _quantityError,
             onSubmitted: (_) => _save(),
           ),
@@ -605,9 +614,9 @@ class _ProductionDialogState extends ConsumerState<_ProductionDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Hủy'),
+          child: Text(l10n.cancel),
         ),
-        FilledButton(onPressed: _save, child: const Text('Lưu')),
+        FilledButton(onPressed: _save, child: Text(l10n.saveLabel)),
       ],
     );
   }
@@ -639,22 +648,20 @@ class _BatchMovementDialogState extends ConsumerState<_BatchMovementDialog> {
   }
 
   void _save() {
+    final l10n = AppLocalizations.of(context);
     final delta = int.tryParse(_deltaController.text.trim());
     final reason = _reasonController.text.trim();
     if (delta == null || delta == 0) {
-      setState(() => _error = 'Nhập số lượng thay đổi khác 0.');
+      setState(() => _error = l10n.movementDeltaRequired);
       return;
     }
     if (reason.isEmpty) {
-      setState(() => _error = 'Nhập lý do biến động (bán, chết, nhập mới…).');
+      setState(() => _error = l10n.movementReasonRequired);
       return;
     }
     final current = widget.herd.batchQuantity ?? 0;
     if (current + delta < 0) {
-      setState(
-        () => _error =
-            'Đàn chỉ còn $current con — không thể xuất quá số hiện có.',
-      );
+      setState(() => _error = l10n.movementExceedsHerd(current));
       return;
     }
     ref
@@ -665,17 +672,18 @@ class _BatchMovementDialogState extends ConsumerState<_BatchMovementDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: Text('Biến động đàn — ${widget.herd.species}'),
+      title: Text(l10n.movementDialogTitle(widget.herd.species)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           TextField(
             controller: _deltaController,
             autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Số con thay đổi',
-              hintText: 'VD: -5 (xuất) hoặc 20 (nhập)',
+            decoration: InputDecoration(
+              labelText: l10n.movementDeltaLabel,
+              hintText: l10n.movementDeltaHint,
             ),
             keyboardType: const TextInputType.numberWithOptions(signed: true),
             onSubmitted: (_) => _save(),
@@ -684,8 +692,8 @@ class _BatchMovementDialogState extends ConsumerState<_BatchMovementDialog> {
           TextField(
             controller: _reasonController,
             decoration: InputDecoration(
-              labelText: 'Lý do',
-              hintText: 'VD: bán ra chợ, nhập con giống',
+              labelText: l10n.movementReasonLabel,
+              hintText: l10n.movementReasonHint,
               errorText: _error,
             ),
           ),
@@ -694,9 +702,9 @@ class _BatchMovementDialogState extends ConsumerState<_BatchMovementDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Hủy'),
+          child: Text(l10n.cancel),
         ),
-        FilledButton(onPressed: _save, child: const Text('Lưu')),
+        FilledButton(onPressed: _save, child: Text(l10n.saveLabel)),
       ],
     );
   }
@@ -755,7 +763,7 @@ class _AllCategoryCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               Text(
-                'Tất cả',
+                AppLocalizations.of(context).allGroupsLabel,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: tokens.textSecondary,
                 ),

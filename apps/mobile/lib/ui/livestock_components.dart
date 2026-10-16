@@ -1,11 +1,38 @@
 import 'package:flutter/material.dart';
 
+import '../core/format/display_format.dart';
 import '../core/theme/farmly_spacing.dart';
 import '../core/theme/farmly_theme_extension.dart';
 import '../features/demo/demo_models.dart';
+import '../l10n/generated/app_localizations.dart';
 import 'farm_card.dart';
 import 'illustrations.dart';
 import 'motion.dart';
+
+/// Localized label for a demo animal category (UI reads arb strings; the
+/// model's `viLabel` stays for demo-data output outside the UI layer).
+String animalCategoryLabel(AppLocalizations l10n, DemoAnimalCategory category) =>
+    switch (category) {
+      DemoAnimalCategory.cows => l10n.animalCategoryCows,
+      DemoAnimalCategory.chickens => l10n.animalCategoryChickens,
+      DemoAnimalCategory.sheep => l10n.animalCategorySheep,
+      DemoAnimalCategory.goats => l10n.animalCategoryGoats,
+    };
+
+/// Localized label for a herd's tracking mode.
+String herdModeLabel(AppLocalizations l10n, DemoHerdMode mode) =>
+    switch (mode) {
+      DemoHerdMode.tracked => l10n.herdModeTracked,
+      DemoHerdMode.batch => l10n.herdModeBatch,
+    };
+
+/// Localized label for an animal lifecycle status.
+String animalStatusLabel(AppLocalizations l10n, DemoAnimalStatus status) =>
+    switch (status) {
+      DemoAnimalStatus.alive => l10n.animalStatusAlive,
+      DemoAnimalStatus.sold => l10n.animalStatusSold,
+      DemoAnimalStatus.deceased => l10n.animalStatusDeceased,
+    };
 
 /// Category selector card (reference livestock screen): square card with the
 /// animal portrait, headcount and label; doubles as the herd filter.
@@ -26,10 +53,12 @@ class AnimalCategoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
+    final categoryLabel = animalCategoryLabel(l10n, category);
     return Semantics(
       button: true,
       selected: selected,
-      label: 'Nhóm ${category.viLabel}, $count con',
+      label: l10n.animalGroupSemantics(categoryLabel, count),
       child: SizedBox(
         width: 96,
         child: Material(
@@ -61,7 +90,7 @@ class AnimalCategoryCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   Text(
-                    category.viLabel,
+                    categoryLabel,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: tokens.textSecondary,
                     ),
@@ -88,15 +117,22 @@ class AnimalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     final alive = animal.status == DemoAnimalStatus.alive;
     final birth = animal.birthDate;
-    final dateLine = birth == null ? 'Chưa ghi ngày sinh' : 'Sinh $birth';
+    final displayBirth = formatDisplayDate(birth, l10n.localeName);
+    final dateLine = birth == null
+        ? l10n.noBirthDate
+        : l10n.bornOn(displayBirth!);
     return Semantics(
       container: true,
-      label:
-          '${animal.name}, thẻ ${animal.tag}, nhóm ${animal.category.viLabel}, '
-          '${birth == null ? 'chưa ghi ngày sinh' : 'sinh $birth'}, '
-          'trạng thái ${animal.status.viLabel}',
+      label: l10n.animalSemantics(
+        animal.name,
+        animal.tag,
+        animalCategoryLabel(l10n, animal.category),
+        birth == null ? l10n.noBirthDate : l10n.bornOnShort(displayBirth!),
+        animalStatusLabel(l10n, animal.status),
+      ),
       child: FarmCard(
         child: Row(
           children: [
@@ -112,7 +148,7 @@ class AnimalCard extends StatelessWidget {
                     softWrap: true,
                   ),
                   Text(
-                    'Thẻ ${animal.tag} · $dateLine',
+                    '${l10n.animalTagLine(animal.tag)} · $dateLine',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: tokens.textSecondary,
                     ),
@@ -120,7 +156,7 @@ class AnimalCard extends StatelessWidget {
                   ),
                   const SizedBox(height: FarmSpacing.xs),
                   Chip(
-                    label: Text(animal.status.viLabel),
+                    label: Text(animalStatusLabel(l10n, animal.status)),
                     visualDensity: VisualDensity.compact,
                     side: BorderSide.none,
                     backgroundColor: alive
@@ -180,19 +216,24 @@ class _FeedingSlot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final finished = entry.total > 0 && entry.done == entry.total;
     final started = entry.done > 0 && !finished;
     final stateLabel = finished
-        ? 'Xong'
+        ? l10n.feedingDoneLabel
         : started
-        ? 'Đang làm'
-        : 'Sắp tới';
+        ? l10n.feedingStartedLabel
+        : l10n.feedingUpcomingLabel;
     return Semantics(
       container: true,
-      label:
-          'Cho ăn ${entry.category.viLabel} lúc ${entry.timeLabel}, '
-          '${entry.feedLabel}: đã cho ${entry.done} trên ${entry.total} lượt — '
-          '$stateLabel',
+      label: l10n.feedingSlotSemantics(
+        animalCategoryLabel(l10n, entry.category),
+        entry.timeLabel,
+        entry.feedLabel,
+        entry.done,
+        entry.total,
+        stateLabel,
+      ),
       child: Column(
         children: [
           Container(

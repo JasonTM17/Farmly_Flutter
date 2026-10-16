@@ -118,8 +118,8 @@ sequenceDiagram
 | `contracts` | Versioned request/response schemas + generator |
 | `infra` | Docker Compose dev stack (PostgreSQL 17, Mailpit) |
 | `tools/qa` | Dependency-pin, secrets and preflight checkers |
-| `plans` | Phase plans, evidence packets, execution ledgers |
-| `docs` | Screenshots and supporting documentation |
+| `tools/eval` | Chatbot eval set, oracles and runner |
+| `docs` | Screenshots |
 
 ## Getting started
 
@@ -128,9 +128,14 @@ sequenceDiagram
 ```powershell
 cp infra/.env.example infra/.env        # fill unique local-only secrets
 docker compose -f infra/compose.yaml --env-file infra/.env config --quiet
+cp apps/api/.env.example apps/api/.env  # fill replace-me secrets to match infra/.env
 npm --prefix apps/api ci
 npm --prefix apps/api run start:dev
 ```
+
+The API loads its config from `apps/api/.env` — the `replace-me` passwords in
+`DATABASE_URL_TENANT` and `DATABASE_URL_AUTH` must match the tenant and auth
+role passwords set in `infra/.env`.
 
 The API rejects `MIGRATION_DATABASE_URL` at runtime — migration credentials
 live only in the migration process. See `apps/api` scripts for the ordered
@@ -142,12 +147,20 @@ migration chain (`migrate:auth` → `migrate:tenant` → `migrate:rls` → …).
 cd apps/mobile
 flutter pub get
 
+# Regenerate gitignored code (same policy as apps/api/generated/):
+node ../../contracts/scripts/build-contracts.mjs   # lib/generated/farmly_api_types.dart
+flutter gen-l10n                                   # lib/l10n/generated/ (also rebuilt on every flutter build)
+
 # Visual preview without a backend — stub session + demo farm data:
 flutter run --flavor development -t lib/main_explorer_preview.dart
 
 # Full app (needs a running API):
 flutter run --flavor development -t lib/main.dart
 ```
+
+`lib/generated/` and `lib/l10n/generated/` are generated output and are not
+committed — recreate them with the commands above. `flutter gen-l10n` also
+runs automatically on every build because `pubspec.yaml` sets `generate: true`.
 
 ## Verification
 
@@ -167,6 +180,6 @@ flutter test            # unit + widget + golden suite
 Foundation build in active development. Golden-tested UI for the six primary
 screens, demo-data preview entrypoint, and the sync/RLS kernel are in place;
 live-device journeys, live DeepSeek calls and release packaging remain gated
-on credentials and hardware. See
-[`plans/261005-1435-farmly-mobile-app/plan.md`](plans/261005-1435-farmly-mobile-app/plan.md)
-for scope, evidence and current gates.
+on credentials and hardware. The internal planning docs covering scope,
+evidence and current gates are working documents and are not shipped in the
+repository.

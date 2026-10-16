@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../core/format/display_format.dart';
 import '../core/theme/farmly_spacing.dart';
 import '../core/theme/farmly_theme_extension.dart';
 import '../features/demo/demo_models.dart';
+import '../l10n/generated/app_localizations.dart';
 import 'farm_card.dart';
 
 /// Crop progress card. Missing manual assessment renders the explicit
@@ -22,25 +24,29 @@ class CropProgressCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     final percent = crop.manualProgressPercent;
     final dateSummary = <String>[
-      if (crop.sowedOn != null) 'gieo ${crop.sowedOn}',
+      if (crop.sowedOn != null)
+        l10n.sowedOnShort(formatDisplayDate(crop.sowedOn, l10n.localeName)!),
       if (crop.expectedHarvestOn != null)
-        'dự kiến thu ${crop.expectedHarvestOn}'
+        l10n.expectedHarvestOn(
+          formatDisplayDate(crop.expectedHarvestOn, l10n.localeName)!,
+        )
       else
-        'chưa có ngày thu dự kiến',
+        l10n.noExpectedHarvest,
     ].join(', ');
     final semantics =
-        'Cây trồng ${crop.species}'
-        '${zoneName == null ? '' : ' ở vùng $zoneName'}, '
-        '${dateSummary.isEmpty ? 'chưa ghi lịch gieo/thu' : dateSummary}, '
-        '${crop.ended ? 'đã kết thúc, ' : ''}'
-        '${percent == null ? 'chưa có đánh giá tiến độ' : 'tiến độ $percent% theo ${crop.assessmentSource ?? 'đánh giá thủ công'}'}';
+        '${l10n.cropSemanticsLead(crop.species)}'
+        '${zoneName == null ? '' : l10n.cropSemanticsZoneSuffix(zoneName!)}, '
+        '${dateSummary.isEmpty ? l10n.noScheduleShort : dateSummary}, '
+        '${crop.ended ? '${l10n.cropEndedShort}, ' : ''}'
+        '${percent == null ? l10n.noProgressShort : l10n.cropProgressSemantics(percent, crop.assessmentSource ?? l10n.manualAssessment)}';
 
     return Semantics(
       container: true,
       button: onTap != null,
-      label: onTap == null ? semantics : '$semantics. Mở chi tiết.',
+      label: onTap == null ? semantics : '$semantics${l10n.openDetailSuffix}',
       child: FarmCard(
         onTap: onTap,
         child: Column(
@@ -77,7 +83,7 @@ class CropProgressCard extends StatelessWidget {
                   const SizedBox(width: FarmSpacing.xs),
                   Expanded(
                     child: Text(
-                      'Chưa có đánh giá tiến độ — cập nhật thủ công',
+                      l10n.noProgressUpdateHint,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: tokens.semanticWarning,
                       ),
@@ -96,7 +102,7 @@ class CropProgressCard extends StatelessWidget {
                   const SizedBox(width: FarmSpacing.sm),
                   Expanded(
                     child: Text(
-                      crop.assessmentSource ?? 'Đánh giá thủ công',
+                      crop.assessmentSource ?? l10n.manualAssessment,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: tokens.textSecondary,
                       ),
@@ -117,7 +123,7 @@ class CropProgressCard extends StatelessWidget {
             ],
             const SizedBox(height: FarmSpacing.sm),
             Text(
-              dateSummary.isEmpty ? 'Chưa ghi lịch gieo/thu' : dateSummary,
+              dateSummary.isEmpty ? l10n.noScheduleShort : dateSummary,
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: tokens.textSecondary),

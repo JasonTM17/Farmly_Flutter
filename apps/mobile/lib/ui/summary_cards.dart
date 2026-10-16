@@ -205,7 +205,9 @@ class WeatherCard extends StatelessWidget {
                 Icon(
                   Icons.wb_sunny_outlined,
                   size: 32,
-                  color: tokens.illustrationBarn,
+                  // Warm amber: weather reads as conditions, not as the barn
+                  // red the artwork token carries (which reads like an alert).
+                  color: tokens.semanticWarning,
                 ),
               ],
             ),

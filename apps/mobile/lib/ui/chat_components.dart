@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/theme/farmly_spacing.dart';
 import '../core/theme/farmly_theme_extension.dart';
+import '../l10n/generated/app_localizations.dart';
 import 'illustrations.dart';
 
 /// Chat bubble. User: dark green with light ink; assistant: cream surface with
@@ -66,14 +67,16 @@ class ChatComposer extends StatelessWidget {
     required this.controller,
     required this.onSend,
     this.enabled = true,
-    this.hintText = 'Nhập câu hỏi cho Farmly AI…',
+    this.hintText,
     super.key,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onSend;
   final bool enabled;
-  final String hintText;
+
+  /// Null falls back to the localized composer hint.
+  final String? hintText;
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +103,10 @@ class ChatComposer extends StatelessWidget {
                   maxLines: 5,
                   textInputAction: TextInputAction.send,
                   onSubmitted: enabled ? onSend : null,
-                  decoration: InputDecoration(hintText: hintText),
+                  decoration: InputDecoration(
+                    hintText:
+                        hintText ?? AppLocalizations.of(context).chatComposerHint,
+                  ),
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ),
@@ -111,7 +117,7 @@ class ChatComposer extends StatelessWidget {
                   final canSend = enabled && value.text.trim().isNotEmpty;
                   return Semantics(
                     button: true,
-                    label: 'Gửi câu hỏi',
+                    label: AppLocalizations.of(context).sendQuestionLabel,
                     child: IconButton.filled(
                       onPressed: canSend ? () => onSend(controller.text) : null,
                       icon: const Icon(Icons.send),
@@ -145,11 +151,11 @@ class NewMessagesButton extends StatelessWidget {
     return Semantics(
       button: true,
       liveRegion: true,
-      label: 'Có tin nhắn mới. Chạm để cuộn xuống tin nhắn mới nhất.',
+      label: AppLocalizations.of(context).newMessagesSemantics,
       child: FilledButton.tonalIcon(
         onPressed: onTap,
         icon: const Icon(Icons.arrow_downward, size: 18),
-        label: const Text('Tin nhắn mới'),
+        label: Text(AppLocalizations.of(context).newMessagesLabel),
       ),
     );
   }
@@ -174,7 +180,7 @@ class ChatSourceFooter extends StatelessWidget {
           const SizedBox(width: FarmSpacing.xs),
           Flexible(
             child: Text(
-              'Dữ liệu đến $asOf · nguồn $source',
+              AppLocalizations.of(context).sourceFooterPattern(asOf, source),
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: tokens.textSecondary),

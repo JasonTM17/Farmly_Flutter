@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/format/display_format.dart';
 import '../../core/theme/farmly_spacing.dart';
 import '../../core/theme/farmly_theme_extension.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../ui/farm_card.dart';
 import '../../ui/form_fields.dart';
 import '../../ui/zone_explorer.dart';
@@ -40,18 +42,19 @@ class ZoneDetailScreen extends ConsumerWidget {
       dataEmpty: zone == null,
     );
     final readOnly = screenState == DemoLoadState.permissionDenied;
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(zone?.name ?? 'Chi tiết vùng'),
+        title: Text(zone?.name ?? l10n.zoneDetailFallbackTitle),
         // Contextual AI entry from the zone toolbar (spec 02 §3).
         actions: [
           Semantics(
             button: true,
-            label: 'Hỏi Farmly AI. Mở trợ lý AI đọc dữ liệu trang trại.',
+            label: l10n.askFarmlyAiSemantics,
             child: IconButton(
-              tooltip: 'Hỏi Farmly AI',
+              tooltip: l10n.askFarmlyAi,
               icon: const Icon(Icons.forum_outlined),
               onPressed: () => openContextualChat(context, ref),
             ),
@@ -67,15 +70,13 @@ class ZoneDetailScreen extends ConsumerWidget {
             onSwitchScope: () => showFarmPickerSheet(context),
           ),
           DemoLoadState.permissionDenied => PermissionDeniedView(
-            message:
-                'Bạn chỉ có quyền xem vùng này — mọi nút ghi đã bị khóa. '
-                'Liên hệ chủ nông trại để được quyền ghi.',
+            message: l10n.zoneReadOnlyBody,
             onSwitchScope: () => showFarmPickerSheet(context),
           ),
           DemoLoadState.empty => EmptyStateView(
-            title: 'Không tìm thấy vùng',
-            message: 'Vùng này có thể đã bị lưu trữ hoặc thuộc phạm vi khác.',
-            actionLabel: 'Đổi nông trại',
+            title: l10n.zoneNotFoundTitle,
+            message: l10n.zoneNotFoundBody,
+            actionLabel: l10n.changeFarm,
             onAction: () => showFarmPickerSheet(context),
           ),
           DemoLoadState.offline ||
@@ -168,7 +169,7 @@ class ZoneDetailScreen extends ConsumerWidget {
                 if (crops.isEmpty)
                   FarmCard(
                     child: Text(
-                      'Vùng này chưa có cây trồng đang theo dõi.',
+                      l10n.zoneNoTrackedCrops,
                       style: Theme.of(context).textTheme.bodyMedium,
                       softWrap: true,
                     ),
@@ -180,13 +181,13 @@ class ZoneDetailScreen extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Công việc',
+                      l10n.tasksSection,
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: FarmSpacing.sm),
                     if (tasks.isEmpty)
                       Text(
-                        'Chưa có việc nào cho vùng này hôm nay.',
+                        l10n.noTasksToday,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: FarmThemeExtension.of(context).textSecondary,
                         ),
@@ -201,7 +202,7 @@ class ZoneDetailScreen extends ConsumerWidget {
                           ? null
                           : () => _openTaskDraftSheet(context, ref, zone.id),
                       icon: const Icon(Icons.add_task_outlined),
-                      label: const Text('Thêm việc'),
+                      label: Text(l10n.addTask),
                     ),
                   ],
                 ),
@@ -212,13 +213,12 @@ class ZoneDetailScreen extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Ghi chú',
+                      l10n.notesSection,
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: FarmSpacing.sm),
                     Text(
-                      'Ghi chú của bạn được lưu trên thiết bị trước, rồi đồng '
-                      'bộ khi có mạng.',
+                      l10n.notesLocalFirstBody,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: FarmThemeExtension.of(context).textSecondary,
                       ),
@@ -249,6 +249,7 @@ class _CropAssessmentSection extends ConsumerWidget {
   final bool pending;
 
   Future<void> _recordMoisture(BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context);
     final entered = await showDialog<String>(
       context: context,
       builder: (_) => const _MoistureDialog(),
@@ -260,28 +261,29 @@ class _CropAssessmentSection extends ConsumerWidget {
         .recordMoisture(
           crop.zoneId,
           valuePercent: percent,
-          method: 'đo tay',
-          asOf: 'vừa xong',
+          method: l10n.manualMethod,
+          asOf: l10n.justNow,
         );
     if (!context.mounted) return;
-    showFarmToast(context, 'Đã lưu trên thiết bị');
+    showFarmToast(context, AppLocalizations.of(context).savedLocallyToast);
   }
 
   Future<void> _openAssessmentDialog(
     BuildContext context,
     WidgetRef ref,
   ) async {
+    final l10n = AppLocalizations.of(context);
     var value = (crop.manualProgressPercent ?? 0).toDouble();
     final saved = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Đánh giá thủ công'),
+          title: Text(l10n.manualAssessment),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Tiến độ ${crop.species}: ${value.round()}%',
+                l10n.cropProgressLine(crop.species, value.round()),
                 style: Theme.of(dialogContext).textTheme.bodyMedium,
               ),
               Slider(
@@ -297,11 +299,11 @@ class _CropAssessmentSection extends ConsumerWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Hủy'),
+              child: Text(l10n.cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Lưu đánh giá'),
+              child: Text(l10n.saveAssessment),
             ),
           ],
         ),
@@ -312,20 +314,24 @@ class _CropAssessmentSection extends ConsumerWidget {
         .read(demoDataProvider.notifier)
         .setCropAssessment(crop.id, value.round());
     if (!context.mounted) return;
-    showFarmToast(context, 'Đã lưu trên thiết bị');
+    showFarmToast(context, AppLocalizations.of(context).savedLocallyToast);
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     final percent = crop.manualProgressPercent;
 
     final dateParts = <String>[
-      if (crop.sowedOn != null) 'Gieo ${crop.sowedOn}',
+      if (crop.sowedOn != null)
+        l10n.sowedOn(formatDisplayDate(crop.sowedOn, l10n.localeName)!),
       if (crop.expectedHarvestOn != null)
-        'dự kiến thu ${crop.expectedHarvestOn}'
+        l10n.expectedHarvestOn(
+          formatDisplayDate(crop.expectedHarvestOn, l10n.localeName)!,
+        )
       else
-        'chưa có ngày thu dự kiến',
+        l10n.noExpectedHarvest,
     ];
 
     return FarmCard(
@@ -343,7 +349,7 @@ class _CropAssessmentSection extends ConsumerWidget {
               ),
               if (crop.ended)
                 Chip(
-                  label: const Text('Đã kết thúc'),
+                  label: Text(l10n.endedChip),
                   visualDensity: VisualDensity.compact,
                   backgroundColor: tokens.brandSage.withValues(alpha: 0.4),
                   side: BorderSide.none,
@@ -355,7 +361,7 @@ class _CropAssessmentSection extends ConsumerWidget {
                     size: 14,
                     color: tokens.textSecondary,
                   ),
-                  label: const Text('Chờ đồng bộ'),
+                  label: Text(l10n.pendingSyncChip),
                   visualDensity: VisualDensity.compact,
                   side: BorderSide.none,
                 ),
@@ -373,7 +379,7 @@ class _CropAssessmentSection extends ConsumerWidget {
                 const SizedBox(width: FarmSpacing.xs),
                 Expanded(
                   child: Text(
-                    'Chưa ghi lịch gieo/thu — không tự suy đoán.',
+                    l10n.noScheduleExplicit,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: tokens.semanticWarning,
                     ),
@@ -402,7 +408,7 @@ class _CropAssessmentSection extends ConsumerWidget {
                 const SizedBox(width: FarmSpacing.xs),
                 Expanded(
                   child: Text(
-                    'Chưa có đánh giá tiến độ — không tự suy đoán.',
+                    l10n.noProgressExplicit,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: tokens.semanticWarning,
                     ),
@@ -421,7 +427,7 @@ class _CropAssessmentSection extends ConsumerWidget {
                 const SizedBox(width: FarmSpacing.sm),
                 Expanded(
                   child: Text(
-                    crop.assessmentSource ?? 'Đánh giá thủ công',
+                    crop.assessmentSource ?? l10n.manualAssessment,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: tokens.textSecondary,
                     ),
@@ -454,7 +460,7 @@ class _CropAssessmentSection extends ConsumerWidget {
                 children: [
                   if (moisture == null)
                     Text(
-                      'Chưa có số đo độ ẩm cho vùng này.',
+                      l10n.noMoistureReading,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: tokens.textSecondary,
                       ),
@@ -462,8 +468,14 @@ class _CropAssessmentSection extends ConsumerWidget {
                     )
                   else
                     Text(
-                      'Độ ẩm: ${moisture.valuePercent}% '
-                      '(${moisture.method}, ${moisture.asOf})',
+                      l10n.moistureLine(
+                        formatDisplayDecimal(
+                          moisture.valuePercent,
+                          l10n.localeName,
+                        ),
+                        moisture.method,
+                        moisture.asOf,
+                      ),
                       style: Theme.of(context).textTheme.bodySmall,
                       softWrap: true,
                     ),
@@ -483,10 +495,10 @@ class _CropAssessmentSection extends ConsumerWidget {
                 icon: const Icon(Icons.rate_review_outlined),
                 label: Text(
                   crop.ended
-                      ? 'Đã kết thúc'
+                      ? l10n.endedChip
                       : percent == null
-                      ? 'Đánh giá'
-                      : 'Cập nhật đánh giá',
+                      ? l10n.assessButton
+                      : l10n.updateAssessmentButton,
                 ),
               ),
               OutlinedButton.icon(
@@ -494,7 +506,7 @@ class _CropAssessmentSection extends ConsumerWidget {
                     ? null
                     : () => _recordMoisture(context, ref),
                 icon: const Icon(Icons.water_drop_outlined),
-                label: const Text('Đo độ ẩm'),
+                label: Text(l10n.measureMoisture),
               ),
             ],
           ),
@@ -520,6 +532,7 @@ class _WaterTankSection extends ConsumerWidget {
   final bool readOnly;
 
   Future<void> _recordReading(BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context);
     final entered = await showDialog<String>(
       context: context,
       builder: (_) => const _TankReadingDialog(),
@@ -528,9 +541,9 @@ class _WaterTankSection extends ConsumerWidget {
     if (litres.isEmpty) return;
     ref
         .read(demoDataProvider.notifier)
-        .recordTankReading(zone.id, litres, 'vừa xong');
+        .recordTankReading(zone.id, litres, l10n.justNow);
     if (!context.mounted) return;
-    showFarmToast(context, 'Đã lưu trên thiết bị');
+    showFarmToast(context, l10n.savedLocallyToast);
   }
 
   Future<void> _recordUsage(BuildContext context, WidgetRef ref) async {
@@ -544,7 +557,7 @@ class _WaterTankSection extends ConsumerWidget {
         .read(demoDataProvider.notifier)
         .recordWaterUsage(zone.id, litres: litres);
     if (!context.mounted) return;
-    showFarmToast(context, 'Đã lưu trên thiết bị');
+    showFarmToast(context, AppLocalizations.of(context).savedLocallyToast);
   }
 
   Future<void> _openSmartWatering(BuildContext context, WidgetRef ref) async {
@@ -554,12 +567,13 @@ class _WaterTankSection extends ConsumerWidget {
       builder: (_) => _SmartWateringSheet(zone: zone),
     );
     if (created != true || !context.mounted) return;
-    showFarmToast(context, 'Đã lưu việc tưới trên thiết bị');
+    showFarmToast(context, AppLocalizations.of(context).irrigationSavedToast);
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     final tank = this.tank;
 
     if (tank == null) {
@@ -568,12 +582,12 @@ class _WaterTankSection extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Chưa có bồn nước nào trong vùng này',
+              l10n.noTankTitle,
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: FarmSpacing.xs),
             Text(
-              'Thêm bồn nước để theo dõi mực nước và lượng dùng hằng ngày.',
+              l10n.noTankBody,
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: tokens.textSecondary),
@@ -592,7 +606,7 @@ class _WaterTankSection extends ConsumerWidget {
           Text(tank.name, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: FarmSpacing.xs),
           Text(
-            'Dung tích ${tank.capacityLitres} lít',
+            l10n.tankCapacity(tank.capacityLitres),
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: tokens.textSecondary),
@@ -610,7 +624,7 @@ class _WaterTankSection extends ConsumerWidget {
                 const SizedBox(width: FarmSpacing.xs),
                 Expanded(
                   child: Text(
-                    'Chưa có số đo mực nước — không suy đoán mức hiện tại.',
+                    l10n.noTankLevel,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: tokens.semanticWarning,
                     ),
@@ -632,14 +646,17 @@ class _WaterTankSection extends ConsumerWidget {
                 return Row(
                   children: [
                     Expanded(
-                      child: _TankMetric(label: 'Mực nước', value: level),
-                    ),
-                    Expanded(
-                      child: _TankMetric(label: 'Còn lại', value: '$stored L'),
+                      child: _TankMetric(label: l10n.tankLevelLabel, value: level),
                     ),
                     Expanded(
                       child: _TankMetric(
-                        label: 'Dùng hôm nay',
+                        label: l10n.tankStoredLabel,
+                        value: '$stored L',
+                      ),
+                    ),
+                    Expanded(
+                      child: _TankMetric(
+                        label: l10n.tankUsedTodayLabel,
                         value: tank.usedTodayLitres == null
                             ? '—'
                             : '${tank.usedTodayLitres} L',
@@ -652,7 +669,7 @@ class _WaterTankSection extends ConsumerWidget {
           const SizedBox(height: FarmSpacing.sm),
           AsOfLabel(
             asOf: tank.asOf ?? '—',
-            source: tank.source ?? 'thủ công',
+            source: tank.source ?? l10n.manualSource,
           ),
           const SizedBox(height: FarmSpacing.md),
           Wrap(
@@ -662,19 +679,19 @@ class _WaterTankSection extends ConsumerWidget {
               OutlinedButton.icon(
                 onPressed: readOnly ? null : () => _recordReading(context, ref),
                 icon: const Icon(Icons.speed_outlined),
-                label: const Text('Ghi số đo'),
+                label: Text(l10n.recordReading),
               ),
               OutlinedButton.icon(
                 onPressed: readOnly ? null : () => _recordUsage(context, ref),
                 icon: const Icon(Icons.water_outlined),
-                label: const Text('Ghi đã dùng'),
+                label: Text(l10n.recordUsage),
               ),
               FilledButton.tonalIcon(
                 onPressed: readOnly
                     ? null
                     : () => _openSmartWatering(context, ref),
                 icon: const Icon(Icons.water_drop_outlined),
-                label: const Text('Smart watering'),
+                label: Text(l10n.smartWatering),
               ),
             ],
           ),
@@ -695,6 +712,7 @@ class _LivestockZoneSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     final state = ref.watch(demoDataProvider);
     final herds = herdsOfFarm(state, zone.farmId);
     final headcount = farmLivestockHeadcount(state, zone.farmId);
@@ -704,14 +722,14 @@ class _LivestockZoneSection extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Khu chăn nuôi',
+            l10n.livestockScreenTitle,
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: FarmSpacing.xs),
           Text(
             herds.isEmpty
-                ? 'Chưa có đàn nào trong nông trại này.'
-                : '${herds.length} đàn · $headcount con đang nuôi',
+                ? l10n.noHerdsInFarm
+                : l10n.herdSummaryLine(herds.length, headcount),
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: tokens.textSecondary),
@@ -720,11 +738,11 @@ class _LivestockZoneSection extends ConsumerWidget {
           const SizedBox(height: FarmSpacing.md),
           Semantics(
             button: true,
-            label: 'Mở khu chăn nuôi, $headcount con',
+            label: l10n.openLivestockSemantics(headcount),
             child: FilledButton.tonalIcon(
               onPressed: () => context.push(AppRoutes.livestock),
               icon: const Icon(Icons.pets_outlined),
-              label: const Text('Mở khu chăn nuôi'),
+              label: Text(l10n.openLivestock),
             ),
           ),
         ],
@@ -753,24 +771,25 @@ class _TankReadingDialogState extends State<_TankReadingDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('Ghi số đo thủ công'),
+      title: Text(l10n.tankReadingTitle),
       content: DecimalField(
         controller: _controller,
         autofocus: true,
-        labelText: 'Mực nước đọc được (lít)',
-        hintText: 'Ví dụ: 3200',
-        helperText: 'Số đọc tay từ đồng hồ — không phải cảm biến trực tiếp.',
+        labelText: l10n.tankReadingLabel,
+        hintText: l10n.valueExampleHint('3200'),
+        helperText: l10n.tankReadingHelper,
         onSubmitted: (value) => Navigator.of(context).pop(value),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Hủy'),
+          child: Text(l10n.cancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: const Text('Lưu số đo'),
+          child: Text(l10n.saveReading),
         ),
       ],
     );
@@ -803,9 +822,10 @@ class _SmartWateringSheetState extends ConsumerState<_SmartWateringSheet> {
   }
 
   void _save() {
+    final l10n = AppLocalizations.of(context);
     final litres = _litresController.text.trim().replaceAll(',', '.');
     if (litres.isEmpty) {
-      setState(() => _litresError = 'Nhập lượng nước dự kiến (lít).');
+      setState(() => _litresError = l10n.litresRequired);
       return;
     }
     final time = _timeController.text.trim();
@@ -815,8 +835,8 @@ class _SmartWateringSheetState extends ConsumerState<_SmartWateringSheet> {
           DemoTask(
             id: 'task-tuoi-${DateTime.now().microsecondsSinceEpoch}',
             zoneId: widget.zone.id,
-            title: 'Tưới $litres lít từ ${widget.zone.name}',
-            timeLabel: time.isEmpty ? 'Chưa đặt giờ' : time,
+            title: l10n.irrigationTaskTitle(litres, widget.zone.name),
+            timeLabel: time.isEmpty ? l10n.noTimeSet : time,
                       ),
         );
     Navigator.of(context).pop(true);
@@ -825,6 +845,7 @@ class _SmartWateringSheetState extends ConsumerState<_SmartWateringSheet> {
   @override
   Widget build(BuildContext context) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -838,13 +859,12 @@ class _SmartWateringSheetState extends ConsumerState<_SmartWateringSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Lập việc tưới nước',
+              l10n.smartWateringSheetTitle,
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: FarmSpacing.xs),
             Text(
-              'Tạo công việc tưới cho vùng liên quan. Không bật/tắt máy bơm '
-              'hay thiết bị nào từ đây.',
+              l10n.smartWateringSheetBody,
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: tokens.textSecondary),
@@ -853,15 +873,15 @@ class _SmartWateringSheetState extends ConsumerState<_SmartWateringSheet> {
             const SizedBox(height: FarmSpacing.lg),
             DecimalField(
               controller: _litresController,
-              labelText: 'Lượng nước dự kiến (lít)',
-              hintText: 'Ví dụ: 200',
+              labelText: l10n.plannedLitresLabel,
+              hintText: l10n.valueExampleHint('200'),
               errorText: _litresError,
             ),
             const SizedBox(height: FarmSpacing.md),
             TextField(
               controller: _timeController,
-              decoration: const InputDecoration(
-                labelText: 'Giờ dự kiến',
+              decoration: InputDecoration(
+                labelText: l10n.plannedTimeLabel,
                 hintText: 'HH:mm',
               ),
               keyboardType: TextInputType.datetime,
@@ -869,7 +889,7 @@ class _SmartWateringSheetState extends ConsumerState<_SmartWateringSheet> {
             const SizedBox(height: FarmSpacing.lg),
             FilledButton(
               onPressed: _save,
-              child: const Text('Lưu việc tưới'),
+              child: Text(l10n.saveIrrigationTask),
             ),
           ],
         ),
@@ -922,7 +942,7 @@ Future<void> _openTaskDraftSheet(
     builder: (_) => _TaskDraftSheet(zoneId: zoneId),
   );
   if (created != true || !context.mounted) return;
-  showFarmToast(context, 'Đã lưu trên thiết bị');
+  showFarmToast(context, AppLocalizations.of(context).savedLocallyToast);
 }
 
 class _TaskDraftSheet extends ConsumerStatefulWidget {
@@ -947,9 +967,10 @@ class _TaskDraftSheetState extends ConsumerState<_TaskDraftSheet> {
   }
 
   void _save() {
+    final l10n = AppLocalizations.of(context);
     final title = _titleController.text.trim();
     if (title.isEmpty) {
-      setState(() => _titleError = 'Nhập tên công việc.');
+      setState(() => _titleError = l10n.taskTitleRequired);
       return;
     }
     final time = _timeController.text.trim();
@@ -960,7 +981,7 @@ class _TaskDraftSheetState extends ConsumerState<_TaskDraftSheet> {
             id: 'task-${DateTime.now().microsecondsSinceEpoch}',
             zoneId: widget.zoneId,
             title: title,
-            timeLabel: time.isEmpty ? 'Chưa đặt giờ' : time,
+            timeLabel: time.isEmpty ? l10n.noTimeSet : time,
                       ),
         );
     Navigator.of(context).pop(true);
@@ -968,6 +989,7 @@ class _TaskDraftSheetState extends ConsumerState<_TaskDraftSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -981,7 +1003,7 @@ class _TaskDraftSheetState extends ConsumerState<_TaskDraftSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Thêm việc cho vùng',
+              l10n.taskSheetTitle,
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: FarmSpacing.lg),
@@ -989,8 +1011,8 @@ class _TaskDraftSheetState extends ConsumerState<_TaskDraftSheet> {
               controller: _titleController,
               autofocus: true,
               decoration: InputDecoration(
-                labelText: 'Tên công việc',
-                hintText: 'Ví dụ: Tưới nhẹ chiều mát',
+                labelText: l10n.taskTitleLabel,
+                hintText: l10n.taskTitleHint,
                 errorText: _titleError,
               ),
               textInputAction: TextInputAction.next,
@@ -998,14 +1020,14 @@ class _TaskDraftSheetState extends ConsumerState<_TaskDraftSheet> {
             const SizedBox(height: FarmSpacing.md),
             TextField(
               controller: _timeController,
-              decoration: const InputDecoration(
-                labelText: 'Giờ dự kiến',
+              decoration: InputDecoration(
+                labelText: l10n.plannedTimeLabel,
                 hintText: 'HH:mm',
               ),
               keyboardType: TextInputType.datetime,
             ),
             const SizedBox(height: FarmSpacing.lg),
-            FilledButton(onPressed: _save, child: const Text('Lưu việc')),
+            FilledButton(onPressed: _save, child: Text(l10n.saveTask)),
           ],
         ),
       ),
@@ -1027,19 +1049,23 @@ class _TaskOccurrenceTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     final done = task.status == DemoTaskStatus.done;
     final terminal =
         task.status == DemoTaskStatus.skipped ||
         task.status == DemoTaskStatus.cancelled;
     final statusLabel = switch (task.status) {
-      DemoTaskStatus.open => task.overdue ? 'Chưa làm — quá hạn' : 'Chưa làm',
-      _ => task.status.viLabel,
+      DemoTaskStatus.open =>
+        task.overdue ? l10n.taskOpenOverdue : l10n.taskOpen,
+      DemoTaskStatus.done => l10n.taskStatusDone,
+      DemoTaskStatus.skipped => l10n.taskStatusSkipped,
+      DemoTaskStatus.cancelled => l10n.taskStatusCancelled,
     };
     return Semantics(
       container: true,
       label:
-          'Việc ${task.title}, ${task.timeLabel}, $statusLabel'
-          '${task.assignee == null ? ', chưa phân công' : ', giao cho ${task.assignee}'}',
+          '${l10n.taskSemantics(task.title, task.timeLabel, statusLabel)}'
+          '${task.assignee == null ? l10n.taskUnassignedSuffix : l10n.taskAssigneeSuffix(task.assignee!)}',
       child: Padding(
         padding: const EdgeInsets.only(bottom: FarmSpacing.xs),
         child: Row(
@@ -1047,8 +1073,8 @@ class _TaskOccurrenceTile extends ConsumerWidget {
           children: [
             Semantics(
               label: done
-                  ? 'Đánh dấu chưa làm: ${task.title}'
-                  : 'Đánh dấu đã làm: ${task.title}',
+                  ? l10n.markUndoneSemantics(task.title)
+                  : l10n.markDoneSemantics(task.title),
               checked: done,
               enabled: !readOnly && !terminal,
               child: Checkbox(
@@ -1078,7 +1104,7 @@ class _TaskOccurrenceTile extends ConsumerWidget {
                   ),
                   Text(
                     '${task.timeLabel}'
-                    '${task.assignee == null ? ' · Chưa phân công' : ' · ${task.assignee}'}',
+                    '${task.assignee == null ? ' · ${l10n.unassignedLabel}' : ' · ${task.assignee}'}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: tokens.textSecondary,
                     ),
@@ -1102,7 +1128,7 @@ class _TaskOccurrenceTile extends ConsumerWidget {
             if (!readOnly) ...[
               if (task.status == DemoTaskStatus.open)
                 IconButton(
-                  tooltip: 'Bỏ qua việc này',
+                  tooltip: l10n.skipTaskTooltip,
                   onPressed: () => ref
                       .read(demoDataProvider.notifier)
                       .transitionTask(
@@ -1115,7 +1141,7 @@ class _TaskOccurrenceTile extends ConsumerWidget {
               if (task.status == DemoTaskStatus.done ||
                   task.status == DemoTaskStatus.skipped)
                 IconButton(
-                  tooltip: 'Làm lại (mở lại việc)',
+                  tooltip: l10n.reopenTaskTooltip,
                   onPressed: () => ref
                       .read(demoDataProvider.notifier)
                       .transitionTask(
@@ -1153,25 +1179,25 @@ class _TankUsageDialogState extends State<_TankUsageDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('Ghi lượng nước đã dùng'),
+      title: Text(l10n.tankUsageTitle),
       content: DecimalField(
         controller: _controller,
         autofocus: true,
-        labelText: 'Số lít đã dùng',
-        hintText: 'Ví dụ: 200',
-        helperText:
-            'Lượng nước thực tế đã lấy — không thay đổi số đo mực nước.',
+        labelText: l10n.tankUsageLabel,
+        hintText: l10n.valueExampleHint('200'),
+        helperText: l10n.tankUsageHelper,
         onSubmitted: (value) => Navigator.of(context).pop(value),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Hủy'),
+          child: Text(l10n.cancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: const Text('Lưu'),
+          child: Text(l10n.saveLabel),
         ),
       ],
     );
@@ -1201,7 +1227,9 @@ class _MoistureDialogState extends State<_MoistureDialog> {
     final raw = _controller.text.trim().replaceAll(',', '.');
     final parsed = double.tryParse(raw);
     if (raw.isEmpty || parsed == null || parsed < 0 || parsed > 100) {
-      setState(() => _error = 'Nhập độ ẩm 0–100%.');
+      setState(
+        () => _error = AppLocalizations.of(context).moistureErrorRange,
+      );
       return;
     }
     Navigator.of(context).pop(raw);
@@ -1209,23 +1237,24 @@ class _MoistureDialogState extends State<_MoistureDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('Đo độ ẩm đất'),
+      title: Text(l10n.moistureDialogTitle),
       content: DecimalField(
         controller: _controller,
         autofocus: true,
-        labelText: 'Độ ẩm đọc được (%)',
-        hintText: 'Ví dụ: 42.5',
-        helperText: 'Số đo tay — ghi riêng theo thời điểm, không gộp.',
+        labelText: l10n.moistureFieldLabel,
+        hintText: l10n.valueExampleHint('42.5'),
+        helperText: l10n.moistureHelper,
         errorText: _error,
         onSubmitted: (_) => _save(),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Hủy'),
+          child: Text(l10n.cancel),
         ),
-        FilledButton(onPressed: _save, child: const Text('Lưu số đo')),
+        FilledButton(onPressed: _save, child: Text(l10n.saveReading)),
       ],
     );
   }
@@ -1242,6 +1271,7 @@ class _ZoneSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     final tracked =
         crops.where((crop) => crop.manualProgressPercent != null).toList();
     final mean = tracked.isEmpty
@@ -1288,7 +1318,7 @@ class _ZoneSummaryCard extends StatelessWidget {
                     ),
                     if (speciesList.isNotEmpty)
                       Text(
-                        'Cây trồng: $speciesList',
+                        l10n.cropsListLabel(speciesList),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: tokens.textSecondary,
                         ),
@@ -1313,7 +1343,7 @@ class _ZoneSummaryCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Tăng trưởng',
+                  l10n.growthLabel,
                   style: Theme.of(context).textTheme.labelLarge,
                 ),
                 Text(

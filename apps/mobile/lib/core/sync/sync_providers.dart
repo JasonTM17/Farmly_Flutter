@@ -43,8 +43,11 @@ final syncEngineProvider = FutureProvider<FarmlySyncEngine>((ref) async {
 });
 
 /// The signed-in account + selected organization/farm as a mutation scope —
-/// `null` until both exist, which is honest "nothing to sync" state.
-final farmlySyncScopeProvider = Provider<FarmlyMutationScope?>((ref) {
+/// `null` until both exist, which is honest "nothing to sync" state. An
+/// invalid scope (e.g. a non-UUID farm id) surfaces as [AsyncError] instead
+/// of throwing during widget build: screens render a translated error state,
+/// never a raw provider exception (spec 02 §5).
+final farmlySyncScopeProvider = FutureProvider<FarmlyMutationScope?>((ref) async {
   final session = ref.watch(farmlyAuthSessionProvider).value;
   final orgScope = ref.watch(selectedOrganizationScopeProvider);
   if (session == null || orgScope == null) return null;
@@ -63,7 +66,7 @@ final farmlySyncScopeProvider = Provider<FarmlyMutationScope?>((ref) {
     farmId: farm.id,
     continuityEpoch: epoch,
   );
-});
+}, retry: (_, _) => null);
 
 /// Snapshot of engine truth for the Sync Center: pending depth, parked
 /// conflicts, last run report. Not a state machine of its own — the durable
@@ -101,7 +104,7 @@ final class SyncStatusController extends AsyncNotifier<SyncStatusSnapshot> {
   /// One full pass: flush the durable outbox, reconcile in-flight, pull the
   /// change feed. Safe to call on connectivity restore or pull-to-refresh.
   Future<void> synchronize() async {
-    final scope = ref.read(farmlySyncScopeProvider);
+    final scope = ref.read(farmlySyncScopeProvider).value;
     if (scope == null) return;
     final engine = await ref.read(syncEngineProvider.future);
     state = AsyncData(
@@ -167,7 +170,7 @@ final class SyncStatusController extends AsyncNotifier<SyncStatusSnapshot> {
   }
 
   Future<SyncStatusSnapshot> _snapshot(FarmlySyncEngine engine) async {
-    final scope = ref.read(farmlySyncScopeProvider);
+    final scope = ref.read(farmlySyncScopeProvider).value;
     var pending = 0;
     var blocked = 0;
     if (scope != null) {

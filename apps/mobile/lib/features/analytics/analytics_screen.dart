@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/farmly_spacing.dart';
 import '../../core/theme/farmly_theme_extension.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../ui/farm_card.dart';
 import '../../ui/farm_scaffold.dart';
 import '../../ui/pickers.dart';
@@ -119,13 +120,14 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
       'analytics',
       dataEmpty: farmIsEmpty,
     );
+    final l10n = AppLocalizations.of(context);
 
     return FarmScaffold(
       topBar: FarmTopBar(
-        title: 'Phân tích',
+        title: l10n.analyticsTab,
         subtitle:
             '${organization?.name ?? ''} · ${farm?.name ?? ''} · '
-            '$_rangeDays ngày gần nhất',
+            '${l10n.rangeDaysLabel(_rangeDays)}',
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -170,15 +172,13 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
                 onSwitchScope: () => showFarmPickerSheet(context),
               ),
               DemoLoadState.permissionDenied => PermissionDeniedView(
-                message: 'Bạn không có quyền xem số liệu của nông trại này.',
+                message: l10n.analyticsPermissionDenied,
                 onSwitchScope: () => showFarmPickerSheet(context),
               ),
               DemoLoadState.empty => EmptyStateView(
-                title: 'Chưa có số liệu trong kỳ',
-                message:
-                    'Khi có bản ghi thu hoạch và cho ăn, biểu đồ và bảng số '
-                    'liệu sẽ xuất hiện ở đây.',
-                actionLabel: 'Đổi nông trại khác',
+                title: l10n.analyticsEmptyTitle,
+                message: l10n.analyticsEmptyBody,
+                actionLabel: l10n.switchFarmOther,
                 onAction: () => showFarmPickerSheet(context),
               ),
               DemoLoadState.offline ||
@@ -241,13 +241,15 @@ class _AnalyticsContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Thu hoạch $days ngày',
+                AppLocalizations.of(context).harvestOverDays(days),
                 style: Theme.of(context).textTheme.titleSmall,
               ),
               const SizedBox(height: FarmSpacing.xs),
               Text(
-                'Tổng ${totalKg.toStringAsFixed(1)} kg · trung bình '
-                '${averageKg.toStringAsFixed(1)} kg/ngày',
+                AppLocalizations.of(context).harvestTotalLine(
+                  totalKg.toStringAsFixed(1),
+                  averageKg.toStringAsFixed(1),
+                ),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: tokens.textSecondary,
                 ),
@@ -256,10 +258,10 @@ class _AnalyticsContent extends StatelessWidget {
               const SizedBox(height: FarmSpacing.md),
               Semantics(
                 container: true,
-                label:
-                    'Biểu đồ cột thu hoạch $days ngày. '
-                    'Tổng ${totalKg.toStringAsFixed(1)} kilô gam; bảng số liệu '
-                    'chi tiết nằm bên dưới.',
+                label: AppLocalizations.of(context).chartSemantics(
+                  days,
+                  totalKg.toStringAsFixed(1),
+                ),
                 child: SizedBox(
                   height: 180,
                   width: double.infinity,
@@ -276,14 +278,20 @@ class _AnalyticsContent extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: FarmSpacing.sm),
-              Row(
+              Wrap(
+                spacing: FarmSpacing.md,
+                runSpacing: FarmSpacing.xs,
                 children: [
-                  _LegendSwatch(color: tokens.brandAction, hatched: false),
-                  const SizedBox(width: FarmSpacing.xs),
-                  const Expanded(child: Text('Thu hoạch (kg)')),
-                  _LegendSwatch(color: tokens.semanticWarning, hatched: true),
-                  const SizedBox(width: FarmSpacing.xs),
-                  const Expanded(child: Text('Cho ăn hoàn tất (%)')),
+                  _LegendEntry(
+                    color: tokens.brandAction,
+                    hatched: false,
+                    label: AppLocalizations.of(context).chartLegendHarvestKg,
+                  ),
+                  _LegendEntry(
+                    color: tokens.semanticWarning,
+                    hatched: true,
+                    label: AppLocalizations.of(context).chartLegendFeedPercent,
+                  ),
                 ],
               ),
             ],
@@ -298,7 +306,7 @@ class _AnalyticsContent extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      'Bảng số liệu',
+                      AppLocalizations.of(context).dataTableTitle,
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),
@@ -308,7 +316,7 @@ class _AnalyticsContent extends StatelessWidget {
                       csv: _buildCsv(series, farmName: farmName),
                     ),
                     icon: const Icon(Icons.download_outlined, size: 18),
-                    label: const Text('Xuất CSV'),
+                    label: Text(AppLocalizations.of(context).exportCsv),
                   ),
                 ],
               ),
@@ -331,9 +339,21 @@ class _AnalyticsContent extends StatelessWidget {
                           ),
                         ),
                         children: [
-                          _tableCell(context, 'Ngày', header: true),
-                          _tableCell(context, 'Thu hoạch (kg)', header: true),
-                          _tableCell(context, 'Cho ăn (%)', header: true),
+                          _tableCell(
+                            context,
+                            AppLocalizations.of(context).tableDateHeader,
+                            header: true,
+                          ),
+                          _tableCell(
+                            context,
+                            AppLocalizations.of(context).chartLegendHarvestKg,
+                            header: true,
+                          ),
+                          _tableCell(
+                            context,
+                            AppLocalizations.of(context).tableFeedHeader,
+                            header: true,
+                          ),
                         ],
                       ),
                       for (final point in series)
@@ -397,12 +417,12 @@ void _showCsvExportSheet(BuildContext context, {required String csv}) {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Xuất CSV',
+            AppLocalizations.of(context).exportCsv,
             style: Theme.of(sheetContext).textTheme.titleMedium,
           ),
           const SizedBox(height: FarmSpacing.xs),
           Text(
-            'Dữ liệu đúng như bảng số liệu — ngày ISO, đơn vị kg.',
+            AppLocalizations.of(context).csvSheetNote,
             style: Theme.of(sheetContext).textTheme.bodySmall,
           ),
           const SizedBox(height: FarmSpacing.md),
@@ -433,16 +453,45 @@ void _showCsvExportSheet(BuildContext context, {required String csv}) {
               await Clipboard.setData(ClipboardData(text: csv));
               if (sheetContext.mounted) {
                 Navigator.of(sheetContext).pop();
-                showFarmToast(context, 'Đã sao chép CSV.');
+                showFarmToast(
+                  context,
+                  AppLocalizations.of(context).csvCopiedToast,
+                );
               }
             },
             icon: const Icon(Icons.copy_outlined),
-            label: const Text('Sao chép CSV'),
+            label: Text(AppLocalizations.of(context).copyCsv),
           ),
         ],
       ),
     ),
   );
+}
+
+/// One legend entry: the color swatch and its label are separate components
+/// with an explicit gap, so the swatch pattern can never touch the text.
+class _LegendEntry extends StatelessWidget {
+  const _LegendEntry({
+    required this.color,
+    required this.hatched,
+    required this.label,
+  });
+
+  final Color color;
+  final bool hatched;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _LegendSwatch(color: color, hatched: hatched),
+        const SizedBox(width: FarmSpacing.sm),
+        Flexible(child: Text(label, softWrap: true)),
+      ],
+    );
+  }
 }
 
 class _LegendSwatch extends StatelessWidget {
@@ -483,6 +532,11 @@ class _LegendPainter extends CustomPainter {
       Paint()
         ..color = color.withValues(alpha: 0.25),
     );
+    // Clip the hatch to the swatch square — diagonal strokes would otherwise
+    // spill past it and cut through the neighbouring label text.
+    canvas
+      ..save()
+      ..clipRect(rect);
     final line = Paint()
       ..color = color
       ..strokeWidth = 2;
@@ -493,6 +547,7 @@ class _LegendPainter extends CustomPainter {
         line,
       );
     }
+    canvas.restore();
   }
 
   @override

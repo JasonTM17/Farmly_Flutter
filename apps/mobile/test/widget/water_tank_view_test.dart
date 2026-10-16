@@ -27,6 +27,9 @@ void main() {
       ],
       child: MaterialApp(
         theme: buildFarmTheme(),
+        // Detail widgets read arb strings — pin the vi locale the assertions
+        // below expect.
+        locale: const Locale('vi'),
         // Deterministic frames: ambient loops render statically
         // so pumpAndSettle terminates.
         builder: (context, child) => MediaQuery(
@@ -95,8 +98,8 @@ void main() {
     await tester.pumpWidget(harness());
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('Smart watering'));
-    await tester.tap(find.text('Smart watering'));
+    await tester.ensureVisible(find.text('Tưới thông minh'));
+    await tester.tap(find.text('Tưới thông minh'));
     await tester.pumpAndSettle();
 
     // The wizard states it only plans a task — no pump/device control.

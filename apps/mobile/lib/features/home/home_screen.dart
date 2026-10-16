@@ -592,7 +592,7 @@ class _WeatherSection extends StatelessWidget {
     if (snap == null || snap.status == DemoWeatherStatus.unavailable) {
       return Semantics(
         container: true,
-        label: 'Không có dữ liệu thời tiết cho nông trại này',
+        label: AppLocalizations.of(context).weatherUnavailableSemantics,
         child: FarmCard(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -608,13 +608,12 @@ class _WeatherSection extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Chưa có dữ liệu thời tiết',
+                      AppLocalizations.of(context).weatherUnavailableTitle,
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: FarmSpacing.xs),
                     Text(
-                      'Nguồn thời tiết chưa có số đo cho nông trại này — '
-                      'không hiển thị giá trị suy đoán.',
+                      AppLocalizations.of(context).weatherNoReadingBody,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: tokens.textSecondary,
                       ),
@@ -645,8 +644,8 @@ class _WeatherSection extends StatelessWidget {
             top: FarmSpacing.xs,
           ),
           child: Text(
-            'Nguồn: ${snap.provider} · cập nhật ${snap.fetchedAt}'
-            '${stale ? ' · dữ liệu cũ' : ''}',
+            '${AppLocalizations.of(context).weatherSourceLine(snap.provider, snap.fetchedAt)}'
+            '${stale ? AppLocalizations.of(context).staleSuffix : ''}',
             style: Theme.of(
               context,
             ).textTheme.labelSmall?.copyWith(color: tokens.textSecondary),

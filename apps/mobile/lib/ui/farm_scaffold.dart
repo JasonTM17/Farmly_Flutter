@@ -106,7 +106,13 @@ class FarmTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = FarmThemeExtension.of(context);
     final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
-    final compact = MediaQuery.sizeOf(context).width < 520 || textScale >= 1.5;
+    // Column layout only when the title row is genuinely crowded: large text,
+    // or a phone width carrying more than two actions. With one or two icon
+    // actions the row keeps them beside the title instead of stranding a
+    // single icon on its own line under a wide empty band.
+    final compact =
+        textScale >= 1.5 ||
+        (MediaQuery.sizeOf(context).width < 520 && actions.length > 2);
     final titleContent = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

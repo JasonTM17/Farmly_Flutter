@@ -84,6 +84,7 @@ const requiredRoutes = [
   'GET /v1/organizations/{orgId}/farms/{farmId}/ai/requests/{requestId}',
   'GET /v1/organizations/{orgId}/farms/{farmId}/ai/conversations',
   'GET /v1/organizations/{orgId}/farms/{farmId}/ai/conversations/{conversationId}/messages',
+  'PUT /v1/organizations/{orgId}/ai/consent',
   'GET /v1/me/notifications',
   'POST /v1/me/notifications/{notificationId}/read',
   'POST /v1/me/device-registrations',

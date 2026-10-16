@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/format/display_format.dart';
 import '../../core/theme/farmly_spacing.dart';
 import '../../core/theme/farmly_theme_extension.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../ui/farm_card.dart';
 import '../../ui/farm_scaffold.dart';
 import '../../ui/form_fields.dart';
@@ -32,26 +34,27 @@ class HarvestScreen extends ConsumerWidget {
       'harvest',
       dataEmpty: records.isEmpty,
     );
+    final l10n = AppLocalizations.of(context);
 
     return FarmScaffold(
       topBar: FarmTopBar(
-        title: 'Thu hoạch',
+        title: l10n.harvestTab,
         subtitle: '${organization?.name ?? ''} · ${farm?.name ?? ''}',
         actions: [
           Semantics(
             button: true,
-            label: 'Hỏi Farmly AI. Mở trợ lý AI đọc dữ liệu trang trại.',
+            label: l10n.askFarmlyTooltip,
             child: IconButton(
-              tooltip: 'Hỏi Farmly AI',
+              tooltip: l10n.askFarmly,
               icon: const Icon(Icons.forum_outlined),
               onPressed: () => openContextualChat(context, ref),
             ),
           ),
           Semantics(
             button: true,
-            label: 'Đổi nông trại',
+            label: l10n.switchFarm,
             child: IconButton(
-              tooltip: 'Đổi nông trại',
+              tooltip: l10n.switchFarm,
               icon: const Icon(Icons.swap_horiz_outlined),
               onPressed: () => showFarmPickerSheet(context),
             ),
@@ -79,17 +82,13 @@ class HarvestScreen extends ConsumerWidget {
                 onSwitchScope: () => showFarmPickerSheet(context),
               ),
               DemoLoadState.permissionDenied => PermissionDeniedView(
-                message:
-                    'Bạn chỉ có quyền xem thu hoạch của nông trại này — '
-                    'thêm bản ghi cần quyền ghi.',
+                message: l10n.harvestWriteDenied,
                 onSwitchScope: () => showFarmPickerSheet(context),
               ),
               DemoLoadState.empty => EmptyStateView(
-                title: 'Chưa có bản ghi thu hoạch',
-                message:
-                    'Ghi nhận lần thu hoạch đầu tiên — bản ghi được lưu trên '
-                    'thiết bị trước khi đồng bộ.',
-                actionLabel: 'Đổi nông trại khác',
+                title: l10n.harvestEmptyTitle,
+                message: l10n.harvestEmptyBody,
+                actionLabel: l10n.switchFarmOther,
                 onAction: () => showFarmPickerSheet(context),
               ),
               DemoLoadState.offline ||
@@ -130,11 +129,7 @@ class _HarvestContent extends ConsumerWidget {
     if (farmId == null || crops.isEmpty) {
       // Offline parent dependency (spec 02 §5): a harvest record needs an
       // existing crop, so the button never fails silently.
-      showFarmToast(
-        context,
-        'Nông trại này chưa có cây trồng — mở một vùng để thêm cây trồng '
-        'trước khi ghi thu hoạch.',
-      );
+      showFarmToast(context, AppLocalizations.of(context).harvestNoCropsBody);
       return;
     }
     final saved = await showModalBottomSheet<bool>(
@@ -144,7 +139,7 @@ class _HarvestContent extends ConsumerWidget {
     );
     if (saved != true) return;
     if (!context.mounted) return;
-    showFarmToast(context, 'Đã lưu trên thiết bị');
+    showFarmToast(context, AppLocalizations.of(context).savedOnDeviceToast);
   }
 
   @override
@@ -196,7 +191,7 @@ class _HarvestContent extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Kỳ này (7 ngày)',
+                AppLocalizations.of(context).thisWeekLabel,
                 style: Theme.of(context).textTheme.titleSmall,
               ),
               const SizedBox(height: FarmSpacing.xs),
@@ -208,9 +203,9 @@ class _HarvestContent extends ConsumerWidget {
                 const SizedBox(height: FarmSpacing.xs),
                 Semantics(
                   container: true,
-                  label:
-                      'Thêm ${pendingKg.toStringAsFixed(2)} kilô gam đang chờ '
-                      'đồng bộ, chưa tính vào tổng đã xác nhận',
+                  label: AppLocalizations.of(
+                    context,
+                  ).pendingOutOfTotal(pendingKg.toStringAsFixed(2)),
                   child: Row(
                     children: [
                       Icon(
@@ -221,8 +216,9 @@ class _HarvestContent extends ConsumerWidget {
                       const SizedBox(width: FarmSpacing.xs),
                       Expanded(
                         child: Text(
-                          'Còn ${pendingKg.toStringAsFixed(2)} kg đang chờ '
-                          'đồng bộ — chưa tính vào tổng trên.',
+                          AppLocalizations.of(
+                            context,
+                          ).pendingOutOfTotalShort(pendingKg.toStringAsFixed(2)),
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(color: tokens.semanticWarning),
                           softWrap: true,
@@ -233,22 +229,28 @@ class _HarvestContent extends ConsumerWidget {
                 ),
               ],
               const SizedBox(height: FarmSpacing.sm),
-              const AsOfLabel(asOf: '06:30', source: 'nhật ký của bạn'),
+              AsOfLabel(
+                asOf: '06:30',
+                source: AppLocalizations.of(context).yourLogSource,
+              ),
             ],
           ),
         ),
         const SizedBox(height: FarmSpacing.md),
         Semantics(
           button: true,
-          label: 'Thêm bản ghi thu hoạch',
+          label: AppLocalizations.of(context).addHarvestTooltip,
           child: FilledButton.icon(
             onPressed: () => _openAddSheet(context, ref),
             icon: const Icon(Icons.add),
-            label: const Text('Thêm thu hoạch'),
+            label: Text(AppLocalizations.of(context).addHarvest),
           ),
         ),
         const SizedBox(height: FarmSpacing.md),
-        Text('Nhật ký', style: Theme.of(context).textTheme.titleSmall),
+        Text(
+          AppLocalizations.of(context).diaryTitle,
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
         const SizedBox(height: FarmSpacing.sm),
         for (final record in records)
           Padding(
@@ -276,10 +278,13 @@ class _HarvestRecordTile extends StatelessWidget {
     final voided = record.status == DemoHarvestStatus.voided;
     final proposal = record.correction;
     final subtitle = StringBuffer(
-      '${record.harvestedOn} · ${record.quantityKg} kg',
+      '${formatDisplayDate(record.harvestedOn, AppLocalizations.of(context).localeName) ?? record.harvestedOn}'
+      ' · ${record.quantityKg} kg',
     );
     if (proposal != null) {
-      subtitle.write(' → đề xuất ${proposal.proposedQuantityKg} kg');
+      subtitle.write(
+        ' → ${AppLocalizations.of(context).proposedValue(proposal.proposedQuantityKg)}',
+      );
     }
     if (record.voidReason != null) {
       subtitle.write(' · ${record.voidReason}');
@@ -287,8 +292,8 @@ class _HarvestRecordTile extends StatelessWidget {
     return Semantics(
       button: true,
       label:
-          'Bản ghi ${record.cropLabel}, ${record.quantityKg} kg, '
-          '${_statusSemantics(record)}',
+          '${AppLocalizations.of(context).recordSemanticsPrefix(record.cropLabel, record.quantityKg)}'
+          '${_statusSemantics(record, AppLocalizations.of(context))}',
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -335,12 +340,13 @@ class _HarvestRecordTile extends StatelessWidget {
     );
   }
 
-  String _statusSemantics(DemoHarvestRecord record) => switch (record.status) {
-    DemoHarvestStatus.confirmed => 'đã xác nhận',
-    DemoHarvestStatus.localPending => 'đang chờ đồng bộ',
-    DemoHarvestStatus.correctionPending => 'đang chờ duyệt chỉnh sửa',
-    DemoHarvestStatus.voided => 'đã huỷ',
-  };
+  String _statusSemantics(DemoHarvestRecord record, AppLocalizations l10n) =>
+      switch (record.status) {
+        DemoHarvestStatus.confirmed => l10n.statusConfirmedLower,
+        DemoHarvestStatus.localPending => l10n.statusLocalPendingLower,
+        DemoHarvestStatus.correctionPending => l10n.statusCorrectionPendingLower,
+        DemoHarvestStatus.voided => l10n.statusVoidedLower,
+      };
 }
 
 class _HarvestStatusChip extends StatelessWidget {
@@ -351,25 +357,26 @@ class _HarvestStatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     final (icon, label, color) = switch (status) {
       DemoHarvestStatus.confirmed => (
         Icons.check_circle_outline,
-        'Đã xác nhận',
+        l10n.chipConfirmed,
         tokens.brandAction,
       ),
       DemoHarvestStatus.localPending => (
         Icons.cloud_upload_outlined,
-        'Chờ đồng bộ',
+        l10n.chipPendingSync,
         tokens.semanticWarning,
       ),
       DemoHarvestStatus.correctionPending => (
         Icons.rate_review_outlined,
-        'Chờ duyệt chỉnh sửa',
+        l10n.chipCorrectionPending,
         tokens.semanticWarning,
       ),
       DemoHarvestStatus.voided => (
         Icons.block_outlined,
-        'Đã huỷ',
+        l10n.chipVoided,
         tokens.semanticError,
       ),
     };
@@ -438,11 +445,13 @@ class _AddHarvestSheetState extends ConsumerState<_AddHarvestSheet> {
       ok = false;
     }
     if (kg.isEmpty || double.tryParse(kg) == null || double.parse(kg) <= 0) {
-      setState(() => _quantityError = 'Nhập khối lượng (kg, số thập phân).');
+      setState(
+        () => _quantityError = AppLocalizations.of(context).quantityError,
+      );
       ok = false;
     }
     if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(date)) {
-      setState(() => _dateError = 'Ngày theo định dạng yyyy-MM-dd.');
+      setState(() => _dateError = AppLocalizations.of(context).dateError);
       ok = false;
     }
     if (!ok || crop == null) return;
@@ -476,13 +485,15 @@ class _AddHarvestSheetState extends ConsumerState<_AddHarvestSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Thêm thu hoạch',
+              AppLocalizations.of(context).addHarvest,
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: FarmSpacing.sm),
             DropdownButtonFormField<DemoCrop>(
               initialValue: _selected,
-              decoration: const InputDecoration(labelText: 'Cây trồng'),
+              decoration: InputDecoration(
+                labelText: AppLocalizations.of(context).cropFieldLabel,
+              ),
               items: [
                 for (final crop in widget.crops)
                   DropdownMenuItem(value: crop, child: Text(crop.species)),
@@ -492,20 +503,20 @@ class _AddHarvestSheetState extends ConsumerState<_AddHarvestSheet> {
             const SizedBox(height: FarmSpacing.sm),
             DecimalField(
               controller: _quantityController,
-              labelText: 'Khối lượng (kg)',
-              hintText: 'Ví dụ: 12.5',
+              labelText: AppLocalizations.of(context).harvestQuantityLabel,
+              hintText: AppLocalizations.of(context).quantityHint,
               errorText: _quantityError,
             ),
             const SizedBox(height: FarmSpacing.sm),
             LocalDateField(
               controller: _dateController,
-              labelText: 'Ngày thu (theo giờ nông trại)',
+              labelText: AppLocalizations.of(context).harvestDateLabel,
               errorText: _dateError,
-              helperText: 'Ngày dương lịch của nông trại, không phải UTC.',
+              helperText: AppLocalizations.of(context).harvestDateHelper,
             ),
             const SizedBox(height: FarmSpacing.sm),
             Text(
-              'Bản ghi lưu trên thiết bị trước, đồng bộ sau.',
+              AppLocalizations.of(context).offlineFirstNote,
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: tokens.textSecondary),
@@ -514,7 +525,7 @@ class _AddHarvestSheetState extends ConsumerState<_AddHarvestSheet> {
             const SizedBox(height: FarmSpacing.lg),
             FilledButton(
               onPressed: _save,
-              child: const Text('Lưu thu hoạch'),
+              child: Text(AppLocalizations.of(context).saveHarvest),
             ),
           ],
         ),
@@ -561,11 +572,13 @@ class _HarvestCorrectionSheetState
     final reason = _reasonController.text.trim();
     var ok = true;
     if (kg.isEmpty || double.tryParse(kg) == null || double.parse(kg) <= 0) {
-      setState(() => _quantityError = 'Nhập khối lượng mới (kg, số thập phân).');
+      setState(
+        () => _quantityError = AppLocalizations.of(context).quantityNewError,
+      );
       ok = false;
     }
     if (reason.isEmpty) {
-      setState(() => _reasonError = 'Nhập lý do chỉnh sửa.');
+      setState(() => _reasonError = AppLocalizations.of(context).reasonError);
       ok = false;
     }
     if (!ok) return;
@@ -575,10 +588,13 @@ class _HarvestCorrectionSheetState
           widget.record.id,
           proposedQuantityKg: kg,
           reason: reason,
-          proposedBy: 'bạn',
+          proposedBy: AppLocalizations.of(context).proposedByYou,
         );
     Navigator.of(context).pop();
-    showFarmToast(context, 'Đã gửi đề xuất chỉnh sửa — chờ quản lý duyệt.');
+    showFarmToast(
+      context,
+      AppLocalizations.of(context).proposalSentToast,
+    );
   }
 
   void _apply() {
@@ -586,7 +602,7 @@ class _HarvestCorrectionSheetState
         .read(demoDataProvider.notifier)
         .applyHarvestCorrection(widget.record.id);
     Navigator.of(context).pop();
-    showFarmToast(context, 'Đã áp dụng chỉnh sửa — chờ đồng bộ.');
+    showFarmToast(context, AppLocalizations.of(context).appliedToast);
   }
 
   void _reject() {
@@ -594,20 +610,20 @@ class _HarvestCorrectionSheetState
         .read(demoDataProvider.notifier)
         .rejectHarvestCorrection(widget.record.id);
     Navigator.of(context).pop();
-    showFarmToast(context, 'Đã từ chối đề xuất chỉnh sửa.');
+    showFarmToast(context, AppLocalizations.of(context).rejectedToast);
   }
 
   void _void() {
     final reason = _reasonController.text.trim();
     if (reason.isEmpty) {
-      setState(() => _reasonError = 'Bắt buộc nhập lý do huỷ.');
+      setState(() => _reasonError = AppLocalizations.of(context).voidReasonError);
       return;
     }
     ref
         .read(demoDataProvider.notifier)
         .voidHarvest(widget.record.id, reason: reason);
     Navigator.of(context).pop();
-    showFarmToast(context, 'Đã huỷ bản ghi — chờ đồng bộ.');
+    showFarmToast(context, AppLocalizations.of(context).voidedToast);
   }
 
   @override
@@ -731,8 +747,8 @@ class _HarvestCorrectionSheetState
                   TextField(
                     controller: _reasonController,
                     decoration: InputDecoration(
-                      labelText: 'Lý do chỉnh sửa',
-                      hintText: 'VD: cân lại đúng là …',
+                      labelText: AppLocalizations.of(context).editReasonLabel,
+                      hintText: AppLocalizations.of(context).editReasonHint,
                       errorText: _reasonError,
                     ),
                   ),
@@ -760,7 +776,7 @@ class _HarvestCorrectionSheetState
                           child: OutlinedButton.icon(
                             onPressed: _reject,
                             icon: const Icon(Icons.close),
-                            label: const Text('Từ chối'),
+                            label: Text(AppLocalizations.of(context).reject),
                           ),
                         ),
                         const SizedBox(width: FarmSpacing.sm),
@@ -768,7 +784,7 @@ class _HarvestCorrectionSheetState
                           child: FilledButton.icon(
                             onPressed: _apply,
                             icon: const Icon(Icons.check),
-                            label: const Text('Áp dụng'),
+                            label: Text(AppLocalizations.of(context).apply),
                           ),
                         ),
                       ],

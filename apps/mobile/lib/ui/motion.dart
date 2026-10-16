@@ -60,6 +60,11 @@ class FarmEntrance extends StatelessWidget {
 /// Ambient animation driver — repeats `period`, delivering a 0..1 phase to
 /// [builder] for continuous scenes (cloud drift, pond ripples). Under reduced
 /// motion it renders phase 0 statically and never starts the ticker.
+///
+/// The phase is quantized to ~12 steps per second: ambient motion (sway,
+/// ripples, drift) reads identically at that rate, but the wrapped subtree —
+/// which is often a whole Stack of CustomPaints — rebuilds/repaints ~5x less
+/// often than a per-frame driver, saving battery on low-end devices.
 class FarmAmbientLoop extends StatefulWidget {
   const FarmAmbientLoop({
     required this.builder,
@@ -76,10 +81,27 @@ class FarmAmbientLoop extends StatefulWidget {
 
 class _FarmAmbientLoopState extends State<FarmAmbientLoop>
     with SingleTickerProviderStateMixin {
+  /// Ambient update rate — 10–15fps keeps organic motion smooth enough.
+  static const int _updatesPerSecond = 12;
+
   late final AnimationController _controller = AnimationController(
     vsync: this,
     duration: widget.period,
-  );
+  )..addListener(_onTick);
+
+  double _phase = 0;
+  int _lastStep = -1;
+
+  /// Quantize the controller value; only rebuild the subtree when the step
+  /// actually changes, not on every display tick.
+  void _onTick() {
+    final steps =
+        (widget.period.inMilliseconds * _updatesPerSecond / 1000).round();
+    final step = (_controller.value * steps).floor();
+    if (step == _lastStep) return;
+    _lastStep = step;
+    setState(() => _phase = step / steps);
+  }
 
   @override
   void didChangeDependencies() {
@@ -102,10 +124,7 @@ class _FarmAmbientLoopState extends State<FarmAmbientLoop>
     if (context.farmReducedMotion()) {
       return widget.builder(context, 0);
     }
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) => widget.builder(context, _controller.value),
-    );
+    return widget.builder(context, _phase);
   }
 }
 

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/farmly_spacing.dart';
 import '../core/theme/farmly_theme_extension.dart';
 import '../features/demo/demo_models.dart';
+import '../l10n/generated/app_localizations.dart';
 
 /// Conflict comparison sheet (spec 02 §4/§7 [ConflictCompareSheet]): shows the
 /// local proposal against the server current value with base version and
@@ -39,7 +40,7 @@ class ConflictCompareSheet extends StatelessWidget {
         ),
         children: [
           Text(
-            'So sánh xung đột',
+            AppLocalizations.of(context).compareConflictTitle,
             style: Theme.of(context).textTheme.titleLarge,
             softWrap: true,
           ),
@@ -53,19 +54,21 @@ class ConflictCompareSheet extends StatelessWidget {
           ),
           const SizedBox(height: FarmSpacing.md),
           _CompareBlock(
-            label: 'Bản của bạn (đề xuất)',
+            label: AppLocalizations.of(context).yourProposalLabel,
             value: item.localSummary,
             emphasized: true,
           ),
           const SizedBox(height: FarmSpacing.sm),
           _CompareBlock(
-            label: 'Máy chủ (hiện tại)',
-            value: item.serverSummary ?? 'Không có dữ liệu trên máy chủ',
+            label: AppLocalizations.of(context).serverCurrentLabel,
+            value: item.serverSummary ??
+                AppLocalizations.of(context).noServerDataSentence,
             emphasized: false,
           ),
           const SizedBox(height: FarmSpacing.sm),
           Text(
-            'Phiên gốc: ${item.baseVersion ?? 'không rõ'}'
+            '${AppLocalizations.of(context).baseVersionLabel}: '
+            '${item.baseVersion ?? AppLocalizations.of(context).unknownLabel}'
             '${item.asOfLabel == null ? '' : ' · ${item.asOfLabel}'}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: tokens.textSecondary,
@@ -74,7 +77,7 @@ class ConflictCompareSheet extends StatelessWidget {
           ),
           const SizedBox(height: FarmSpacing.sm),
           Text(
-            'Không có tự động gộp số liệu — chọn hướng xử lý trên thẻ xung đột.',
+            AppLocalizations.of(context).noAutoMergeNote,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: tokens.textSecondary,
             ),
@@ -85,7 +88,7 @@ class ConflictCompareSheet extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Đóng'),
+              child: Text(AppLocalizations.of(context).close),
             ),
           ),
         ],

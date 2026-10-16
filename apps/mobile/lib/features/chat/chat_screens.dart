@@ -8,6 +8,7 @@ import '../../core/auth/auth_session_controller.dart';
 import '../../core/sync/sync_providers.dart';
 import '../../core/theme/farmly_spacing.dart';
 import '../../core/theme/farmly_theme_extension.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../ui/chat_components.dart';
 import '../../ui/farm_card.dart';
 import '../../ui/illustrations.dart';
@@ -19,14 +20,11 @@ import '../demo/demo_models.dart';
 import '../demo/demo_providers.dart';
 import 'live_chat_controller.dart';
 
-const _consentCopy =
-    'Farmly gửi nội dung bạn nhập và dữ liệu trang trại bạn cho phép tới '
-    'DeepSeek để tạo câu trả lời. Không gửi mật khẩu hay khóa API.';
-
-const _demoPrompts = [
-  'Tóm tắt việc hôm nay',
-  'Sản lượng đã ghi tháng này',
-  'Dữ liệu nào cần kiểm tra lại?',
+/// Contextual prompt chips on the welcome screen (localized).
+List<String> _demoPrompts(AppLocalizations l10n) => [
+  l10n.chatPromptTasksToday,
+  l10n.chatPromptProductionMonth,
+  l10n.chatPromptDataToCheck,
 ];
 
 /// Chat welcome: Farmly AI title, scope chip, consent copy with data details
@@ -53,6 +51,7 @@ class ChatWelcomeScreen extends ConsumerWidget {
     final organization = organizationById(state, state.selectedOrganizationId);
     final consent = ref.watch(aiConsentProvider);
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -65,7 +64,7 @@ class ChatWelcomeScreen extends ConsumerWidget {
             const SizedBox(height: FarmSpacing.md),
             Center(
               child: Text(
-                'Hỏi về công việc và dữ liệu trang trại của bạn',
+                l10n.chatWelcomeTitle,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleLarge,
                 softWrap: true,
@@ -74,9 +73,10 @@ class ChatWelcomeScreen extends ConsumerWidget {
             const SizedBox(height: FarmSpacing.md),
             Center(
               child: Semantics(
-                label:
-                    'Phạm vi hội thoại hiện tại: tổ chức '
-                    '${organization?.name ?? ''}, nông trại ${farm?.name ?? ''}',
+                label: l10n.chatScopeSemantics(
+                  organization?.name ?? '',
+                  farm?.name ?? '',
+                ),
                 child: Chip(
                   avatar: const Icon(Icons.landscape_outlined, size: 16),
                   label: Text(
@@ -92,12 +92,12 @@ class ChatWelcomeScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Quyền riêng tư',
+                    l10n.chatPrivacyTitle,
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   const SizedBox(height: FarmSpacing.sm),
                   Text(
-                    _consentCopy,
+                    l10n.chatConsentCopy,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const SizedBox(height: FarmSpacing.sm),
@@ -105,11 +105,11 @@ class ChatWelcomeScreen extends ConsumerWidget {
                     children: [
                       TextButton(
                         onPressed: () => _showDataDetailsSheet(context),
-                        child: const Text('Chi tiết dữ liệu'),
+                        child: Text(l10n.chatDataDetails),
                       ),
                       TextButton(
                         onPressed: () => _showHistorySheet(context),
-                        child: const Text('Lịch sử'),
+                        child: Text(l10n.chatHistory),
                       ),
                     ],
                   ),
@@ -117,10 +117,8 @@ class ChatWelcomeScreen extends ConsumerWidget {
                     const SizedBox(height: FarmSpacing.xs),
                     Text(
                       consent.contextualAccepted
-                          ? 'Bạn đã đồng ý dùng dữ liệu trang trại (bản đồng thuận '
-                                'số ${consent.revision}).'
-                          : 'Bạn đang ở chế độ chung — hội thoại mới không đính '
-                                'kèm dữ liệu riêng.',
+                          ? l10n.chatConsentAccepted(consent.revision)
+                          : l10n.chatGeneralModeActive,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: tokens.textSecondary,
                       ),
@@ -133,7 +131,8 @@ class ChatWelcomeScreen extends ConsumerWidget {
             const SizedBox(height: FarmSpacing.lg),
             FilledButton(
               onPressed: () async {
-                final liveScope = ref.read(farmlySyncScopeProvider);
+                final liveScope =
+                    ref.read(farmlySyncScopeProvider).value;
                 final signedIn =
                     ref.read(farmlyAuthSessionProvider).value?.user != null;
                 if (signedIn && liveScope != null) {
@@ -147,11 +146,7 @@ class ChatWelcomeScreen extends ConsumerWidget {
                   } catch (_) {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Chưa lưu được đồng thuận — hãy thử lại.',
-                          ),
-                        ),
+                        SnackBar(content: Text(l10n.chatConsentFailed)),
                       );
                     }
                     return;
@@ -162,7 +157,7 @@ class ChatWelcomeScreen extends ConsumerWidget {
                 if (!context.mounted) return;
                 _openConversation(context, ref, contextual: true);
               },
-              child: const Text('Đồng ý, dùng dữ liệu trang trại'),
+              child: Text(l10n.chatConsentCta),
             ),
             const SizedBox(height: FarmSpacing.sm),
             OutlinedButton(
@@ -170,15 +165,15 @@ class ChatWelcomeScreen extends ConsumerWidget {
                 ref.read(aiConsentProvider.notifier).chooseGeneralMode();
                 _openConversation(context, ref, contextual: false);
               },
-              child: const Text('Dùng chế độ chung (không ngữ cảnh)'),
+              child: Text(l10n.chatGeneralModeCta),
             ),
             const SizedBox(height: FarmSpacing.xl),
             Text(
-              'Gợi ý cho bạn',
+              l10n.chatSuggestionsTitle,
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: FarmSpacing.sm),
-            for (final prompt in _demoPrompts)
+            for (final prompt in _demoPrompts(l10n))
               Padding(
                 padding: const EdgeInsets.only(bottom: FarmSpacing.sm),
                 child: FarmCard(
@@ -189,11 +184,7 @@ class ChatWelcomeScreen extends ConsumerWidget {
                         .read(aiConsentProvider)
                         .contextualAccepted;
                     if (!accepted) {
-                      showFarmToast(
-                        context,
-                        'Chọn “Đồng ý, dùng dữ liệu trang trại” để hỏi theo '
-                        'ngữ cảnh nông trại.',
-                      );
+                      showFarmToast(context, l10n.chatPromptNeedsConsent);
                       return;
                     }
                     _openConversation(
@@ -226,6 +217,7 @@ class ChatWelcomeScreen extends ConsumerWidget {
   }
 
   void _showDataDetailsSheet(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -234,15 +226,12 @@ class ChatWelcomeScreen extends ConsumerWidget {
           padding: const EdgeInsets.all(FarmSpacing.lg),
           children: [
             Text(
-              'Chi tiết dữ liệu gửi đi',
+              l10n.chatDataDetailsTitle,
               style: Theme.of(sheetContext).textTheme.titleLarge,
             ),
             const SizedBox(height: FarmSpacing.sm),
             Text(
-              'Trong chế độ ngữ cảnh, Farmly gửi câu hỏi của bạn cùng các bản '
-              'ghi liên quan của nông trại đang chọn (công việc, thu hoạch, '
-              'cho ăn) tới máy chủ Farmly, rồi máy chủ gọi DeepSeek. Mật khẩu, '
-              'khóa API và dữ liệu của tổ chức khác không bao giờ được gửi.',
+              l10n.chatDataDetailsBody,
               style: Theme.of(sheetContext).textTheme.bodyMedium,
               softWrap: true,
             ),
@@ -253,6 +242,7 @@ class ChatWelcomeScreen extends ConsumerWidget {
   }
 
   void _showHistorySheet(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -260,12 +250,13 @@ class ChatWelcomeScreen extends ConsumerWidget {
           shrinkWrap: true,
           padding: const EdgeInsets.all(FarmSpacing.lg),
           children: [
-            Text('Lịch sử', style: Theme.of(sheetContext).textTheme.titleLarge),
+            Text(
+              l10n.chatHistory,
+              style: Theme.of(sheetContext).textTheme.titleLarge,
+            ),
             const SizedBox(height: FarmSpacing.sm),
             Text(
-              'Hội thoại được lưu riêng tư theo tài khoản của bạn. Bạn có thể '
-              'xem lại, đổi tên hoặc xóa trong mục lịch sử; bản demo này chưa '
-              'gắn với hội thoại thật.',
+              l10n.chatHistoryBody,
               style: Theme.of(sheetContext).textTheme.bodyMedium,
               softWrap: true,
             ),
@@ -318,11 +309,6 @@ class ChatConversationScreen extends ConsumerStatefulWidget {
 
 class _ChatConversationScreenState
     extends ConsumerState<ChatConversationScreen> {
-  static const _demoAnswer =
-      'Đây là câu trả lời minh họa giao diện. Khi chạy thật, Farmly sẽ tóm '
-      'tắt công việc còn dở, sản lượng và các bản ghi cần kiểm tra lại, kèm '
-      'nguồn dữ liệu.';
-
   static const _screenKey = 'chat-conversation';
 
   final _composerController = TextEditingController();
@@ -331,15 +317,18 @@ class _ChatConversationScreenState
   bool _generating = false;
   bool _showNewMessages = false;
   String? _generationNote;
+
+  /// Demo seed conversation. `late final` so the arb-backed strings resolve
+  /// against Localizations on first access (post-mount), not in initState.
   late final List<_ChatMessage> _messages = [
     _ChatMessage(
       isUser: true,
-      text: widget.initialPrompt ?? 'Tuần này mình cần lưu ý gì?',
+      text: widget.initialPrompt ?? AppLocalizations.of(context).chatDefaultPrompt,
     ),
-    const _ChatMessage(
+    _ChatMessage(
       isUser: false,
-      text: _demoAnswer,
-      footerSource: 'bản ghi trang trại của bạn',
+      text: AppLocalizations.of(context).chatDemoAnswer,
+      footerSource: AppLocalizations.of(context).chatDemoSource,
     ),
   ];
 
@@ -347,7 +336,7 @@ class _ChatConversationScreenState
   /// simulation stays the fallback for unsigned/preview use.
   bool get _isLive =>
       ref.read(farmlyAuthSessionProvider).value?.user != null &&
-      ref.read(farmlySyncScopeProvider)?.farmId != null;
+      ref.read(farmlySyncScopeProvider).value?.farmId != null;
 
   @override
   void initState() {
@@ -445,16 +434,17 @@ class _ChatConversationScreenState
   }
 
   void _startGeneration({required bool replay}) {
+    final l10n = AppLocalizations.of(context);
     _generationTimer?.cancel();
     setState(() {
       _generating = true;
       // §6: replay is the same request again (free); a new request bills.
       _generationNote = replay
-          ? 'Phát lại cùng yêu cầu — miễn phí, không tính hạn mức.'
-          : 'Yêu cầu mới — sẽ tính vào hạn mức AI của bạn.';
-      const placeholder = _ChatMessage(
+          ? l10n.chatReplayNote
+          : l10n.chatNewRequestNote;
+      final placeholder = _ChatMessage(
         isUser: false,
-        text: 'Đang tạo câu trả lời…',
+        text: l10n.chatGenerating,
         isPlaceholder: true,
       );
       if (_messages.isNotEmpty && _messages.last.isPlaceholder) {
@@ -475,10 +465,10 @@ class _ChatConversationScreenState
     setState(() {
       _generating = false;
       if (_messages.isNotEmpty && _messages.last.isPlaceholder) {
-        _messages[_messages.length - 1] = const _ChatMessage(
+        _messages[_messages.length - 1] = _ChatMessage(
           isUser: false,
-          text: _demoAnswer,
-          footerSource: 'bản ghi trang trại của bạn',
+          text: AppLocalizations.of(context).chatDemoAnswer,
+          footerSource: AppLocalizations.of(context).chatDemoSource,
         );
       }
     });
@@ -488,14 +478,15 @@ class _ChatConversationScreenState
   /// Stop reaches the terminal partial state immediately; the partial answer
   /// stays visible and labelled (spec 02 §6).
   void _stopGeneration() {
+    final l10n = AppLocalizations.of(context);
     _generationTimer?.cancel();
     setState(() {
       _generating = false;
       if (_messages.isNotEmpty && _messages.last.isPlaceholder) {
-        _messages[_messages.length - 1] = const _ChatMessage(
+        _messages[_messages.length - 1] = _ChatMessage(
           isUser: false,
-          text: '…phần trả lời đã tạo trước khi bạn dừng.',
-          partialLabel: 'Đã dừng tạo — câu trả lời một phần, chưa hoàn chỉnh.',
+          text: l10n.chatPartialAnswer,
+          partialLabel: l10n.chatPartialLabel,
         );
       }
     });
@@ -523,7 +514,7 @@ class _ChatConversationScreenState
           if (message.isPlaceholder)
             Semantics(
               liveRegion: true,
-              label: 'Đang tạo câu trả lời',
+              label: AppLocalizations.of(context).chatGeneratingSemantics,
               child: Row(
                 children: [
                   Expanded(child: Text(message.text, softWrap: true)),
@@ -575,8 +566,12 @@ class _ChatConversationScreenState
       _ => true,
     };
     // Live lane: durable server state replaces the demo simulation whenever a
-    // signed-in farm scope exists (spec05 §5–§7).
+    // signed-in farm scope exists (spec05 §5–§7). Watching the scope keeps
+    // the lane reactive; an errored scope renders the translated banner below
+    // instead of throwing during build (spec02 §5).
+    final liveScope = ref.watch(farmlySyncScopeProvider);
     final live = _isLive ? ref.watch(liveChatControllerProvider) : null;
+    final l10n = AppLocalizations.of(context);
     final displayedMessages = live == null
         ? _messages
         : live.messages
@@ -588,7 +583,7 @@ class _ChatConversationScreenState
                   partialLabel: m.partialLabel,
                   footerSource: m.footerSources == null
                       ? null
-                      : '${m.footerSources!.length} nguồn dữ liệu trang trại',
+                      : l10n.chatSourcesCount(m.footerSources!.length),
                 ),
               )
               .toList();
@@ -629,7 +624,7 @@ class _ChatConversationScreenState
                     child: Text(
                       widget.contextual
                           ? '${organization?.name ?? ''} · ${farm?.name ?? ''}'
-                          : 'Chế độ chung — không đính kèm dữ liệu trang trại',
+                          : l10n.chatGeneralScope,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: tokens.textSecondary,
                       ),
@@ -637,6 +632,42 @@ class _ChatConversationScreenState
                     ),
                   ),
                 ],
+              ),
+            ),
+            // Scope error: compact translated notice inside the safe area —
+            // never the raw provider exception (spec02 §5).
+            liveScope.when(
+              data: (_) => const SizedBox.shrink(),
+              loading: () => const SizedBox.shrink(),
+              error: (_, _) => Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  FarmSpacing.lg,
+                  0,
+                  FarmSpacing.lg,
+                  FarmSpacing.sm,
+                ),
+                child: FarmCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.chatLiveScopeError,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                        softWrap: true,
+                      ),
+                      const SizedBox(height: FarmSpacing.sm),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () =>
+                              ref.invalidate(farmlySyncScopeProvider),
+                          icon: const Icon(Icons.refresh, size: 16),
+                          label: Text(l10n.retry),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
             Expanded(
@@ -648,14 +679,12 @@ class _ChatConversationScreenState
                       .reset(_screenKey),
                 ),
                 DemoLoadState.permissionDenied => PermissionDeniedView(
-                  message:
-                      'Bạn không còn quyền đọc dữ liệu nông trại này — '
-                      'hội thoại ngữ cảnh đã bị khóa để bảo vệ dữ liệu.',
+                  message: l10n.chatPermissionBody,
                   onSwitchScope: () => showFarmPickerSheet(context),
                 ),
-                DemoLoadState.empty => const EmptyStateView(
-                  title: 'Chưa có tin nhắn',
-                  message: 'Nhập câu hỏi đầu tiên vào ô bên dưới để bắt đầu.',
+                DemoLoadState.empty => EmptyStateView(
+                  title: l10n.chatEmptyTitle,
+                  message: l10n.chatEmptyBody,
                 ),
                 DemoLoadState.offline ||
                 DemoLoadState.pendingConflict ||
@@ -748,7 +777,7 @@ class _ChatConversationScreenState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Farmly AI cần đồng thuận của bạn để tiếp tục.',
+                        l10n.chatConsentRequired,
                         style: Theme.of(context).textTheme.bodyMedium,
                         softWrap: true,
                       ),
@@ -757,9 +786,7 @@ class _ChatConversationScreenState
                         onPressed: () => ref
                             .read(liveChatControllerProvider.notifier)
                             .grantConsent(),
-                        child: const Text(
-                          'Đồng ý dùng dữ liệu trang trại',
-                        ),
+                        child: Text(l10n.chatGrantConsent),
                       ),
                     ],
                   ),
@@ -797,6 +824,7 @@ class _ConversationActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -807,15 +835,15 @@ class _ConversationActions extends StatelessWidget {
             TextButton(
               // Stop only applies while a request is in flight.
               onPressed: generating ? onStop : null,
-              child: const Text('Dừng tạo'),
+              child: Text(l10n.chatStop),
             ),
             TextButton(
               onPressed: generating ? null : onReplay,
-              child: const Text('Kết nối lại câu trả lời này'),
+              child: Text(l10n.chatReplay),
             ),
             TextButton(
               onPressed: generating ? null : onNew,
-              child: const Text('Tạo câu trả lời mới'),
+              child: Text(l10n.chatNewAnswer),
             ),
           ],
         ),

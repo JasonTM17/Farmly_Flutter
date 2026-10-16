@@ -6,6 +6,7 @@ import '../core/theme/farmly_colors.dart';
 import '../core/theme/farmly_spacing.dart';
 import '../core/theme/farmly_theme_extension.dart';
 import '../features/demo/demo_models.dart';
+import '../l10n/generated/app_localizations.dart';
 import 'motion.dart';
 
 IconData _zoneIcon(DemoZoneKind kind, {required bool filled}) {
@@ -100,8 +101,11 @@ class ZoneScene extends StatefulWidget {
   final ValueChanged<String> onSelect;
   final ValueChanged<DemoZone> onOpenDetail;
 
-  /// Shows the floating "+" in the map's top-right corner (reference has an
-  /// add-zone affordance there). Null hides the button.
+  /// Shows the floating "+" beside the reset control in the map's bottom
+  /// right corner (reference has an add-zone affordance there). Null hides
+  /// the button. Zone details open from the zone panel / accessible list —
+  /// tiles select + focus on tap so a single tap never waits on the
+  /// double-tap window.
   final VoidCallback? onAdd;
 
   @override
@@ -110,17 +114,46 @@ class ZoneScene extends StatefulWidget {
 
 class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
   final TransformationController _transform = TransformationController();
-  final GlobalKey _viewerKey = GlobalKey();
   AnimationController? _zoomController;
   Animation<Matrix4>? _zoomAnimation;
+
+  /// Last viewport size the fit transform was computed/applied for. The
+  /// first frame can report a 0×0 viewport, so the fit re-applies whenever
+  /// the measured size changes — never a one-shot flag.
+  Size? _fitForViewport;
+
+  /// Measured viewport + board sizes, captured in LayoutBuilder so camera
+  /// math uses board-space tile centers against the real viewport.
+  Size _viewportSize = Size.zero;
+  Size _boardSize = Size.zero;
 
   @override
   void didUpdateWidget(ZoneScene oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Switching to the Overview chip clears the selection — drop the zoom
-    // back to the whole-map view so the gesture mirrors the reference.
-    if (widget.selectedZoneId == null && oldWidget.selectedZoneId != null) {
-      _resetView();
+    if (widget.zones.length != oldWidget.zones.length) {
+      // Board height changed — refit so every plot stays visible.
+      _fitForViewport = null;
+    }
+    // Any selection change flies the camera — tapping a tile, a chip in
+    // the strip, or picking from the accessible list all dive the same
+    // way, so there is a single camera path. Deferred: mutating the
+    // transform synchronously inside didUpdateWidget rebuilds
+    // InteractiveViewer's internal keyed gesture detector mid-build,
+    // which trips a sliver "indexOf(child) > index" assertion when the
+    // scene sits inside the page ListView.
+    if (widget.selectedZoneId != oldWidget.selectedZoneId) {
+      final id = widget.selectedZoneId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final zone = id == null
+            ? null
+            : widget.zones.where((z) => z.id == id).firstOrNull;
+        if (zone != null) {
+          _focusZone(zone);
+        } else {
+          _resetView();
+        }
+      });
     }
   }
 
@@ -138,6 +171,7 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
   }
 
   void _animateTo(Matrix4 target) {
+    if (_transform.value == target) return;
     _zoomAnimation?.removeListener(_onZoomTick);
     _zoomController?.dispose();
     final controller = AnimationController(
@@ -145,15 +179,36 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
       duration: context.farmCameraFlightDuration(),
     );
     _zoomController = controller;
-    final animation = Matrix4Tween(
-      begin: _transform.value,
-      end: target,
-    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeInOutCubic));
-    _zoomAnimation = animation..addListener(_onZoomTick);
+    final begin = _transform.value;
+    // Fly ~4.5% past the target then settle — the little dip at the end of
+    // the reference's camera dive.
+    final overshoot = Matrix4.copy(target)
+      ..scaleByDouble(1.045, 1.045, 1.0, 1.0);
+    _zoomAnimation = controller.drive(
+      TweenSequence<Matrix4>(<TweenSequenceItem<Matrix4>>[
+        TweenSequenceItem(
+          tween: Matrix4Tween(
+            begin: begin,
+            end: overshoot,
+          ).chain(CurveTween(curve: Curves.easeInOutCubic)),
+          weight: 78,
+        ),
+        TweenSequenceItem(
+          tween: Matrix4Tween(
+            begin: overshoot,
+            end: target,
+          ).chain(CurveTween(curve: Curves.easeInOutQuad)),
+          weight: 22,
+        ),
+      ]),
+    )..addListener(_onZoomTick);
     controller.forward();
   }
 
-  void _resetView() => _animateTo(Matrix4.identity());
+  /// The fitted whole-board view — what reset returns to, not raw identity.
+  Matrix4 _fit = Matrix4.identity();
+
+  void _resetView() => _animateTo(_fit);
 
   /// Plot tiles are chunky rounded squares (~42% of map width) on a loose
   /// two-column grid — the reference map's board-game layout.
@@ -161,11 +216,10 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
   static double _tileH(Size canvas) => _tileW(canvas) * 0.72;
 
   /// Painter order, back row first so nearer plots overdraw correctly.
-  List<DemoZone> get _ordered => widget.zones.toList()
-    ..sort((a, b) => (a.x + a.y).compareTo(b.x + b.y));
+  List<DemoZone> get _ordered =>
+      widget.zones.toList()..sort((a, b) => (a.x + a.y).compareTo(b.x + b.y));
 
-  int _cellIndex(DemoZone zone) =>
-      _ordered.indexWhere((z) => z.id == zone.id);
+  int _cellIndex(DemoZone zone) => _ordered.indexWhere((z) => z.id == zone.id);
 
   /// Number of grid rows for the current zone list (two per row).
   int get _rows => (_ordered.length + 1) ~/ 2;
@@ -176,6 +230,25 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
     final th = width * 0.42 * 0.72;
     final pitch = th * 1.38;
     return 34 + pitch * (_rows - 1) + th + 28;
+  }
+
+  /// The map viewport is capped so the floating controls always sit on the
+  /// visible board. When the board is taller than the cap, the initial
+  /// transform fits it — the whole farm stays visible like the reference
+  /// board, and InteractiveViewer pan/zoom still works from there.
+  Matrix4 _fitTransform(double viewportW, double viewportH, double boardH) {
+    if (viewportW <= 0 || viewportH <= 0 || boardH <= 0) {
+      return Matrix4.identity();
+    }
+    final s = viewportH / boardH;
+    // Only fit when the board meaningfully overflows — and never produce a
+    // degenerate scale (InteractiveViewer hit-tests need an invertible
+    // matrix; scale 0 throws "Matrix cannot be inverted").
+    if (s >= 0.99 || s <= 0.2) return Matrix4.identity();
+    final dx = (viewportW - viewportW * s) / 2;
+    return Matrix4.identity()
+      ..translateByDouble(dx, 0, 0, 1)
+      ..scaleByDouble(s, s, 1, 1);
   }
 
   /// Grid cell center with a small per-zone jitter so the grid reads organic
@@ -195,12 +268,14 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
   }
 
   void _focusZone(DemoZone zone) {
-    final viewport = _viewerKey.currentContext?.size;
-    if (viewport == null) return;
+    final viewport = _viewportSize;
+    final board = _boardSize;
+    if (viewport.isEmpty || board.isEmpty) return;
     // Deep, slow flight into the tapped plot — the reference's signature
-    // "camera dives into the tile" feel.
+    // "camera dives into the tile" feel. Tile centers live in board space;
+    // the translation lands that point at the viewport's center.
     const scale = 2.4;
-    final center = _tileCenter(zone, _cellIndex(zone), viewport);
+    final center = _tileCenter(zone, _cellIndex(zone), board);
     final dx = viewport.width / 2 - center.dx * scale;
     final dy = viewport.height / 2 - center.dy * scale;
     _animateTo(
@@ -213,160 +288,228 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
+    final boardW = MediaQuery.sizeOf(context).width - FarmSpacing.lg * 2;
+    final boardH = _mapHeight(boardW);
+    // Cap the viewport so the map + the floating controls stay visible
+    // without scrolling — a fitted board (pan/zoom still allowed) reads
+    // like the reference's whole-farm board.
+    final viewportH = math.min(
+      boardH,
+      MediaQuery.sizeOf(context).height * 0.52,
+    );
     return Stack(
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(tokens.cardRadius),
-          child: InteractiveViewer(
-            key: _viewerKey,
-            transformationController: _transform,
-            maxScale: 3,
-            minScale: 1,
-            panEnabled: true,
-            child: SizedBox(
-              width: double.infinity,
-              height: _mapHeight(
-                MediaQuery.sizeOf(context).width - FarmSpacing.lg * 2,
-              ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final canvas = Size(
-                    constraints.maxWidth,
-                    constraints.maxHeight,
-                  );
-                  return FarmAmbientLoop(
-                    builder: (context, phase) => Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                      Positioned.fill(
-                        child: CustomPaint(
-                          painter: _IsoGroundPainter(phase: phase),
-                        ),
-                      ),
-                      // Painter order: iso rows back-to-front so nearer
-                      // tiles overdraw further ones correctly.
-                      for (final (tileIndex, zone) in _ordered.indexed)
-                        () {
-                          final center = _tileCenter(zone, tileIndex, canvas);
-                          final selected =
-                              zone.id == widget.selectedZoneId;
-                          final tw = _tileW(canvas);
-                          final th = _tileH(canvas);
-                          return Positioned(
-                            left: center.dx - tw / 2,
-                            top: center.dy - th / 2 - 26 - (selected ? 6 : 0),
-                            width: tw,
-                            height: th + 26,
-                            child: Semantics(
-                              button: true,
-                              selected: selected,
-                              label:
-                                  'Vùng ${zone.name}. Chạm để chọn, nhấn đôi để mở chi tiết.',
-                              excludeSemantics: true,
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.translucent,
-                                onTap: () {
-                                  widget.onSelect(zone.id);
-                                  _focusZone(zone);
-                                },
-                                onDoubleTap: () =>
-                                    widget.onOpenDetail(zone),
-                                child: FarmEntrance(
-                                  drop: true,
-                                  delay: Duration(
-                                    milliseconds: 90 * tileIndex,
-                                  ),
-                                  child: Stack(
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      Positioned(
-                                        left: 0,
-                                        right: 0,
-                                        top: 12,
-                                        bottom: 0,
-                                        child: CustomPaint(
-                                          painter: IsoZoneTilePainter(
-                                            kind: zone.kind,
-                                            selected: selected,
-                                            phase: phase,
-                                            name: zone.name,
+          child: SizedBox(
+            height: viewportH,
+            width: double.infinity,
+            child: LayoutBuilder(
+              builder: (context, vp) {
+                _boardSize = Size(boardW, boardH);
+                _viewportSize = Size(vp.maxWidth, vp.maxHeight);
+                _fit = _fitTransform(vp.maxWidth, vp.maxHeight, boardH);
+                // Refit whenever the measured viewport changes — the first
+                // frame can be 0×0, and later zone additions change the
+                // board. Applying inside a post-frame callback keeps the
+                // transform write out of the build phase.
+                final fitKey = _viewportSize;
+                if (_fitForViewport != fitKey) {
+                  _fitForViewport = fitKey;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _transform.value = _fit;
+                  });
+                }
+                return InteractiveViewer(
+                  transformationController: _transform,
+                  maxScale: 3,
+                  // Below the fit scale so a fitted board is still legal.
+                  minScale: 0.5,
+                  panEnabled: true,
+                  // Board is taller than the capped viewport — the child
+                  // keeps its natural size and pans/zooms inside. Margin
+                  // must stay finite: EdgeInsets.all(double.infinity)
+                  // produces a singular matrix in InteractiveViewer's hit
+                  // test ("Matrix cannot be inverted").
+                  constrained: false,
+                  boundaryMargin: EdgeInsets.all(boardH),
+                  child: SizedBox(
+                    // Unconstrained viewer → explicit board size, never
+                    // double.infinity (infinite width is invalid here).
+                    width: boardW,
+                    height: boardH,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final canvas = Size(
+                          constraints.maxWidth,
+                          constraints.maxHeight,
+                        );
+                        return FarmAmbientLoop(
+                          builder: (context, phase) => Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Positioned.fill(
+                                child: CustomPaint(
+                                  painter: _IsoGroundPainter(phase: phase),
+                                ),
+                              ),
+                              // Painter order: iso rows back-to-front so nearer
+                              // tiles overdraw further ones correctly.
+                              for (final (tileIndex, zone) in _ordered.indexed)
+                                () {
+                                  final center = _tileCenter(
+                                    zone,
+                                    tileIndex,
+                                    canvas,
+                                  );
+                                  final selected =
+                                      zone.id == widget.selectedZoneId;
+                                  final tw = _tileW(canvas);
+                                  final th = _tileH(canvas);
+                                  return Positioned(
+                                    left: center.dx - tw / 2,
+                                    top: center.dy - th / 2 - 26,
+                                    width: tw,
+                                    height: th + 26,
+                                    child: Semantics(
+                                      button: true,
+                                      selected: selected,
+                                      label: l10n.zoneTileSemantics(zone.name),
+                                      excludeSemantics: true,
+                                      child: GestureDetector(
+                                        behavior: HitTestBehavior.translucent,
+                                        // Selection change drives the
+                                        // camera via didUpdateWidget —
+                                        // one flight path for tile tap,
+                                        // chip strip, and accessible list.
+                                        onTap: () => widget.onSelect(zone.id),
+                                        // Selected plot lifts ~6px with a soft
+                                        // overshoot — the little "pop" that makes
+                                        // the reference's taps feel physical.
+                                        child: TweenAnimationBuilder<double>(
+                                          tween: Tween<double>(
+                                            begin: 0,
+                                            end: selected ? -1 : 0,
                                           ),
-                                        ),
-                                      ),
-                                      Positioned(
-                                        left: 8,
-                                        top: 0,
-                                        child: _ZoneLabelChip(
-                                          name: zone.name,
-                                          kind: zone.kind,
-                                          selected: selected,
-                                        ),
-                                      ),
-                                      // Impact puff as the tile lands.
-                                      Positioned.fill(
-                                        top: 12,
-                                        child: IgnorePointer(
-                                          child: FarmDustPuff(
+                                          duration: context.farmStateDuration(),
+                                          curve: Curves.easeOutBack,
+                                          builder: (context, lift, child) =>
+                                              Transform.translate(
+                                                offset: Offset(0, lift * 6),
+                                                child: child,
+                                              ),
+                                          child: FarmEntrance(
+                                            drop: true,
                                             delay: Duration(
-                                              milliseconds:
-                                                  90 * tileIndex + 220,
+                                              milliseconds: 90 * tileIndex,
+                                            ),
+                                            child: Stack(
+                                              clipBehavior: Clip.none,
+                                              children: [
+                                                Positioned(
+                                                  left: 0,
+                                                  right: 0,
+                                                  top: 12,
+                                                  bottom: 0,
+                                                  child: CustomPaint(
+                                                    painter: IsoZoneTilePainter(
+                                                      kind: zone.kind,
+                                                      selected: selected,
+                                                      phase: phase,
+                                                      name: zone.name,
+                                                    ),
+                                                  ),
+                                                ),
+                                                Positioned(
+                                                  left: 8,
+                                                  top: 0,
+                                                  child: _ZoneLabelChip(
+                                                    name: zone.name,
+                                                    kind: zone.kind,
+                                                    selected: selected,
+                                                  ),
+                                                ),
+                                                // Impact puff as the tile lands.
+                                                Positioned.fill(
+                                                  top: 12,
+                                                  child: IgnorePointer(
+                                                    child: FarmDustPuff(
+                                                      delay: Duration(
+                                                        milliseconds:
+                                                            90 * tileIndex +
+                                                            220,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         ),
                                       ),
-                                    ],
+                                    ),
+                                  );
+                                }(),
+                              // Broad soft shadows sweeping across the whole board
+                              // on the ambient phase — overhead cloud cover passing
+                              // like in the reference video's shaded board.
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: CustomPaint(
+                                    painter: _CloudDriftPainter(phase: phase),
                                   ),
                                 ),
                               ),
-                            ),
-                          );
-                        }(),
-                                          if (widget.onAdd != null)
-                        Positioned(
-                          top: 10,
-                          right: 10,
-                          child: Semantics(
-                            button: true,
-                            label: 'Tạo vùng mới',
-                            child: Material(
-                              color: FarmlyColors.surface,
-                              shape: const CircleBorder(),
-                              elevation: 2,
-                              child: InkWell(
-                                customBorder: const CircleBorder(),
-                                onTap: widget.onAdd,
-                                child: const SizedBox.square(
-                                  dimension: 40,
-                                  child: Icon(
-                                    Icons.add,
-                                    color: FarmlyColors.brandAction,
-                                  ),
-                                ),
-                              ),
-                            ),
+                            ],
                           ),
-                        ),
-  ],
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
           ),
         ),
+        if (widget.onAdd != null)
+          // Bottom-right cluster beside the reset control: the old top-right
+          // spot collided with the leading tile's label chip (maxWidth 116 +
+          // zone.x jitter pushed chips under the button).
+          Positioned(
+            right: FarmSpacing.sm + FarmSpacing.minTouchTarget + FarmSpacing.xs,
+            bottom: FarmSpacing.sm + FarmSpacing.xs,
+            child: Semantics(
+              button: true,
+              label: l10n.addZoneTooltip,
+              child: Material(
+                color: FarmlyColors.surface,
+                shape: const CircleBorder(),
+                elevation: 2,
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: widget.onAdd,
+                  child: const SizedBox.square(
+                    dimension: 40,
+                    child: Icon(Icons.add, color: FarmlyColors.brandAction),
+                  ),
+                ),
+              ),
+            ),
+          ),
         Positioned(
           right: FarmSpacing.sm,
           bottom: FarmSpacing.sm,
           child: Semantics(
             button: true,
-            label: 'Đặt lại khung nhìn bản đồ vùng',
+            label: l10n.resetMapSemantics,
             child: Material(
               color: tokens.surface,
               shape: const CircleBorder(
                 side: BorderSide(color: FarmlyColors.divider),
               ),
               child: IconButton(
-                tooltip: 'Đặt lại khung nhìn',
+                tooltip: l10n.resetMapView,
                 onPressed: _resetView,
                 icon: const Icon(Icons.center_focus_strong_outlined),
                 constraints: const BoxConstraints(
@@ -429,8 +572,7 @@ class _IsoGroundPainter extends CustomPainter {
         FarmlyColors.semanticWarning,
         FarmlyColors.surface,
         0.35,
-      )!
-          .withValues(alpha: 0.5)
+      )!.withValues(alpha: 0.5)
       ..style = PaintingStyle.stroke
       ..strokeWidth = size.width * 0.035
       ..strokeCap = StrokeCap.round;
@@ -500,9 +642,14 @@ class _IsoGroundPainter extends CustomPainter {
     final flowerPetal = Paint()
       ..color = FarmlyColors.surface.withValues(alpha: 0.9);
     final decor = <(double, double, int)>[
-      (0.06, 0.34, 0), (0.93, 0.42, 0), (0.5, 0.30, 1),
-      (0.07, 0.70, 1), (0.94, 0.80, 0), (0.5, 0.72, 1),
-      (0.08, 0.99, 0), (0.92, 0.10, 1),
+      (0.06, 0.34, 0),
+      (0.93, 0.42, 0),
+      (0.5, 0.30, 1),
+      (0.07, 0.70, 1),
+      (0.94, 0.80, 0),
+      (0.5, 0.72, 1),
+      (0.08, 0.99, 0),
+      (0.92, 0.10, 1),
     ];
     for (final (fx, fy, kind) in decor) {
       final c = Offset(size.width * fx, size.height * fy);
@@ -531,6 +678,44 @@ class _IsoGroundPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_IsoGroundPainter oldDelegate) =>
+      oldDelegate.phase != phase;
+}
+
+/// Soft cloud shadows drifting left→right across the board — three blurred
+/// bands at different heights and speeds so the sky reads alive over the
+/// plots, matching the reference's moving shade.
+class _CloudDriftPainter extends CustomPainter {
+  const _CloudDriftPainter({required this.phase});
+
+  final double phase;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final shade = Paint()
+      ..color = FarmlyColors.textPrimary.withValues(alpha: 0.05)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 26);
+    // Each band wraps the canvas on its own period and at its own altitude.
+    for (final (speed, cy, w, h, offset)
+        in <(double, double, double, double, double)>[
+          (0.55, 0.16, 0.62, 0.15, 0.0),
+          (0.38, 0.55, 0.75, 0.20, 0.45),
+          (0.68, 0.86, 0.52, 0.12, 0.75),
+        ]) {
+      final t = (phase * speed + offset) % 1.0;
+      final cx = size.width * (-0.45 + t * 1.9);
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(cx, size.height * cy),
+          width: size.width * w,
+          height: size.height * h,
+        ),
+        shade,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_CloudDriftPainter oldDelegate) =>
       oldDelegate.phase != phase;
 }
 
@@ -604,10 +789,7 @@ class IsoZoneTilePainter extends CustomPainter {
     final depth = h * 0.09;
     final faceH = h - depth - 6; // 6px reserved for the soft shadow bleed.
     const radius = Radius.circular(16);
-    final face = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, 0, w, faceH),
-      radius,
-    );
+    final face = RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, faceH), radius);
     final skirt = RRect.fromRectAndRadius(
       Rect.fromLTWH(0, depth, w, faceH),
       radius,
@@ -622,8 +804,7 @@ class IsoZoneTilePainter extends CustomPainter {
     );
     canvas.drawRRect(
       skirt,
-      Paint()
-        ..color = Color.lerp(base, FarmlyColors.textPrimary, 0.42)!,
+      Paint()..color = Color.lerp(base, FarmlyColors.textPrimary, 0.42)!,
     );
     canvas.drawRRect(face, Paint()..color = base);
 
@@ -755,8 +936,7 @@ class IsoZoneTilePainter extends CustomPainter {
           final bob =
               math.sin(phase * 2 * math.pi + i * 2.1) * (i.isEven ? 2.4 : 0);
           // Graze wander: each animal strolls a few px back and forth.
-          final wander =
-              math.sin(phase * 2 * math.pi + i * 1.7) * w * 0.03;
+          final wander = math.sin(phase * 2 * math.pi + i * 1.7) * w * 0.03;
           final small = i.isOdd;
           final p = Offset(
             w * spots[i] + wander,
@@ -933,7 +1113,12 @@ class IsoZoneTilePainter extends CustomPainter {
         final sway = math.sin(phase * 2 * math.pi + i * 0.8 + r * 0.4) * 1.6;
         final px = w * (0.14 + i * 0.18);
         canvas.drawLine(Offset(px, y - 8), Offset(px, y + 8), stake);
-        _sphere(canvas, Offset(px + sway, y - 4), 5.4, FarmlyColors.brandAction);
+        _sphere(
+          canvas,
+          Offset(px + sway, y - 4),
+          5.4,
+          FarmlyColors.brandAction,
+        );
         canvas.drawCircle(Offset(px + sway + 3.4, y - 2), 1.9, fruit);
       }
     }
@@ -1050,7 +1235,6 @@ class IsoZoneTilePainter extends CustomPainter {
       oldDelegate.phase != phase;
 }
 
-
 /// Semantically-complete list fallback for the explorer scene: the same zone
 /// IDs as the hotspots, readable by screen readers without gestures.
 class AccessibleZoneList extends StatelessWidget {
@@ -1068,14 +1252,17 @@ class AccessibleZoneList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = FarmThemeExtension.of(context);
+    final l10n = AppLocalizations.of(context);
     return Column(
       children: zones
           .map(
             (zone) => Semantics(
               button: true,
               label:
-                  'Vùng ${zone.name}${zone.subtitle == null ? '' : ', ${zone.subtitle}'}'
-                  '${zone.id == selectedZoneId ? ', đang chọn' : ''}. Mở chi tiết vùng.',
+                  '${l10n.zoneListEntry(zone.name)}'
+                  '${zone.subtitle == null ? '' : ', ${zone.subtitle}'}'
+                  '${zone.id == selectedZoneId ? l10n.zoneListSelectedSuffix : ''}'
+                  '${l10n.openZoneDetailSuffix}',
               child: ListTile(
                 leading: Icon(_zoneIcon(zone.kind, filled: false)),
                 title: Text(zone.name, softWrap: true),

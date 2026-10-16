@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Generated code — regenerate via `node ../../contracts/scripts/build-contracts.mjs`
+# (lib/generated/) and `flutter gen-l10n` (lib/l10n/generated/, also rebuilt on build).
+lib/generated/
+lib/l10n/generated/

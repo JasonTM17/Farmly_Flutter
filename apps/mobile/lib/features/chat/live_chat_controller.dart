@@ -120,7 +120,9 @@ final class LiveChatController extends Notifier<LiveChatState> {
   AiChatRepository get _repository => ref.read(aiChatRepositoryProvider);
 
   ({String organizationId, String farmId})? get _scope {
-    final scope = ref.read(farmlySyncScopeProvider);
+    // An invalid scope surfaces as AsyncError — `.value` fails closed to null
+    // instead of throwing into the caller (spec02 §5).
+    final scope = ref.read(farmlySyncScopeProvider).value;
     final farmId = scope?.farmId;
     if (scope == null || farmId == null) return null;
     return (organizationId: scope.organizationId, farmId: farmId);

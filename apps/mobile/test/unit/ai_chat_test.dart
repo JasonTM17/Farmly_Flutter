@@ -53,11 +53,13 @@ void main() {
           overrides: [
             aiChatRepositoryProvider.overrideWithValue(repo),
             farmlySyncScopeProvider.overrideWithValue(
-              FarmlyMutationScope.farm(
-                accountId: '00000000-0000-4000-8000-0000000000aa',
-                organizationId: scope,
-                farmId: farm,
-                continuityEpoch: '1',
+              AsyncValue.data(
+                FarmlyMutationScope.farm(
+                  accountId: '00000000-0000-4000-8000-0000000000aa',
+                  organizationId: scope,
+                  farmId: farm,
+                  continuityEpoch: '1',
+                ),
               ),
             ),
           ],
