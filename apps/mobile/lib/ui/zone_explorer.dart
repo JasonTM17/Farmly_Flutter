@@ -44,8 +44,19 @@ class ZoneChipStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = FarmThemeExtension.of(context);
+    final labelStyle = Theme.of(context).chipTheme.labelStyle;
+    // The strip grows with the scaled chip label so 200% text never clips;
+    // the floor keeps the full 48dp touch-target band at normal scale.
+    final scaledLabelHeight = MediaQuery.textScalerOf(
+      context,
+    ).scale((labelStyle?.fontSize ?? 14) * (labelStyle?.height ?? 1.35));
+    final stripHeight = math.max(
+      FarmSpacing.minTouchTarget,
+      scaledLabelHeight + FarmSpacing.xxl + FarmSpacing.xs,
+    );
     return SizedBox(
-      height: FarmSpacing.minTouchTarget,
+      height: stripHeight,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: FarmSpacing.lg),
@@ -53,11 +64,19 @@ class ZoneChipStrip extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: FarmSpacing.sm),
         itemBuilder: (context, index) {
           if (overviewLabel != null && index == 0) {
+            final selected = selectedZoneId == null;
             return Center(
               child: ChoiceChip(
                 label: Text(overviewLabel!),
-                selected: selectedZoneId == null,
+                selected: selected,
+                showCheckmark: false,
+                materialTapTargetSize: MaterialTapTargetSize.padded,
                 onSelected: (_) => onSelect(null),
+                avatar: Icon(
+                  Icons.grid_view_rounded,
+                  size: 16,
+                  color: selected ? tokens.onAction : tokens.brandAction,
+                ),
               ),
             );
           }
@@ -67,13 +86,13 @@ class ZoneChipStrip extends StatelessWidget {
             child: ChoiceChip(
               label: Text(zone.name),
               selected: selected,
+              showCheckmark: false,
+              materialTapTargetSize: MaterialTapTargetSize.padded,
               onSelected: (_) => onSelect(zone.id),
               avatar: Icon(
                 _zoneIcon(zone.kind, filled: selected),
                 size: 16,
-                color: selected
-                    ? FarmThemeExtension.of(context).onAction
-                    : FarmThemeExtension.of(context).brandAction,
+                color: selected ? tokens.onAction : tokens.brandAction,
               ),
             ),
           );
@@ -1251,32 +1270,147 @@ class AccessibleZoneList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = FarmThemeExtension.of(context);
     final l10n = AppLocalizations.of(context);
     return Column(
-      children: zones
-          .map(
-            (zone) => Semantics(
-              button: true,
-              label:
-                  '${l10n.zoneListEntry(zone.name)}'
-                  '${zone.subtitle == null ? '' : ', ${zone.subtitle}'}'
-                  '${zone.id == selectedZoneId ? l10n.zoneListSelectedSuffix : ''}'
-                  '${l10n.openZoneDetailSuffix}',
-              child: ListTile(
-                leading: Icon(_zoneIcon(zone.kind, filled: false)),
-                title: Text(zone.name, softWrap: true),
-                subtitle: zone.subtitle == null
-                    ? null
-                    : Text(zone.subtitle!, softWrap: true),
-                selected: zone.id == selectedZoneId,
-                selectedTileColor: tokens.brandSage.withValues(alpha: 0.25),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => onOpenDetail(zone),
-              ),
+      children: [
+        for (final (index, zone) in zones.indexed) ...[
+          if (index > 0)
+            const Divider(
+              height: 1,
+              indent: FarmSpacing.lg + _previewWidth + FarmSpacing.md,
+              endIndent: FarmSpacing.lg,
             ),
-          )
-          .toList(),
+          Semantics(
+            button: true,
+            selected: zone.id == selectedZoneId,
+            label:
+                '${l10n.zoneListEntry(zone.name)}'
+                '${zone.subtitle == null ? '' : ', ${zone.subtitle}'}'
+                '${zone.id == selectedZoneId ? l10n.zoneListSelectedSuffix : ''}'
+                '${l10n.openZoneDetailSuffix}',
+            child: _ZoneDirectoryRow(
+              zone: zone,
+              selected: zone.id == selectedZoneId,
+              kindLabel: _zoneKindText(l10n, zone.kind),
+              onTap: () => onOpenDetail(zone),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Localized zone-kind label shared by the directory row (mirrors the
+/// overview screen's kind chip wording).
+String _zoneKindText(AppLocalizations l10n, DemoZoneKind kind) =>
+    switch (kind) {
+      DemoZoneKind.crop => l10n.zoneKindCrop,
+      DemoZoneKind.livestock => l10n.zoneKindLivestock,
+      DemoZoneKind.water => l10n.zoneKindWater,
+      DemoZoneKind.storage => l10n.zoneKindStorage,
+      DemoZoneKind.house => l10n.zoneKindHouse,
+    };
+
+const double _previewWidth = 72;
+const double _previewHeight = 64;
+
+/// One accessible directory row: a static clay scene thumbnail matching the
+/// map tile, wrapped title, optional subtitle, localized kind label and a
+/// trailing chevron. Grows vertically so scaled text never clips.
+class _ZoneDirectoryRow extends StatelessWidget {
+  const _ZoneDirectoryRow({
+    required this.zone,
+    required this.selected,
+    required this.kindLabel,
+    required this.onTap,
+  });
+
+  final DemoZone zone;
+  final bool selected;
+  final String kindLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FarmThemeExtension.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final subtitle = zone.subtitle;
+    return Material(
+      color: selected ? tokens.brandSage.withValues(alpha: 0.25) : null,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: FarmSpacing.lg,
+            vertical: FarmSpacing.md,
+          ),
+          child: Row(
+            children: [
+              // Static thumbnail of the same scene painter used on the map;
+              // clipped to bound the skirt/shadow bleed and excluded from
+              // semantics (the row label already names the zone).
+              ExcludeSemantics(
+                child: RepaintBoundary(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(
+                      FarmSpacing.inputRadius,
+                    ),
+                    child: Container(
+                      width: _previewWidth,
+                      height: _previewHeight,
+                      color: tokens.surface,
+                      child: CustomPaint(
+                        painter: IsoZoneTilePainter(
+                          kind: zone.kind,
+                          selected: false,
+                          phase: 0,
+                          name: zone.name,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: FarmSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      zone.name,
+                      softWrap: true,
+                      style: textTheme.titleMedium,
+                    ),
+                    if (subtitle != null && subtitle.isNotEmpty)
+                      Text(
+                        subtitle,
+                        softWrap: true,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: tokens.textSecondary,
+                        ),
+                      ),
+                    const SizedBox(height: FarmSpacing.xs),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: FarmSpacing.sm,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: tokens.brandSage.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(FarmSpacing.sm),
+                      ),
+                      child: Text(kindLabel, style: textTheme.labelSmall),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: FarmSpacing.sm),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
