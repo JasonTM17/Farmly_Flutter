@@ -1,0 +1,183 @@
+name: Publish Farmly API image
+
+on:
+  push:
+    tags:
+      - "api-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-api-image-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Scan, smoke-test, and publish preview image
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Validate preview release tag
+        id: release
+        run: node .github/scripts/assert-api-preview-tag.mjs
+
+      - name: Set image identity
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/farmly-api" >> "$GITHUB_OUTPUT"
+          echo "revision=sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release image locally
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.release.outputs.version }}
+          REVISION_TAG: ${{ steps.image.outputs.revision }}
+        run: >-
+          docker buildx build --load --platform linux/amd64 --provenance=false
+          --build-arg BUILD_VERSION="$VERSION"
+          --build-arg VCS_REF=${{ github.sha }}
+          --tag "$IMAGE:$VERSION"
+          --tag "$IMAGE:$REVISION_TAG"
+          -f apps/api/Dockerfile apps/api
+
+      - name: Verify runtime image contents
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$IMAGE:$VERSION"
+          test "$(docker image inspect "$image" --format '{{.Config.User}}')" = node
+          docker run --rm --entrypoint node "$image" -e "const fs=require('node:fs'); const required=['/app/node_modules/@prisma/client/index.js','/app/node_modules/.prisma/client/index.js','/app/generated/auth-client/index.js']; const forbidden=['/app/.env','/app/src','/app/test','/app/scripts','/app/node_modules/prisma','/app/node_modules/vitest','/app/node_modules/typescript','/app/node_modules/tsx','/usr/local/lib/node_modules/npm','/usr/local/bin/npm']; const missing=required.filter(x=>!fs.existsSync(x)); const present=forbidden.filter(x=>fs.existsSync(x)); if(missing.length||present.length) { console.error(JSON.stringify({missingRequired:missing,forbiddenPresent:present})); process.exit(1) }"
+
+      - name: Scan image and retain the full vulnerability report
+        id: trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          scan-ref: ${{ steps.image.outputs.name }}:${{ steps.release.outputs.version }}
+          format: json
+          output: ${{ runner.temp }}/farmly-api-trivy.json
+          exit-code: "0"
+          vuln-type: os,library
+          version: v0.75.0
+
+      - name: Archive Trivy vulnerability report
+        if: ${{ always() && steps.trivy.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: farmly-api-trivy-${{ steps.release.outputs.version }}
+          path: ${{ runner.temp }}/farmly-api-trivy.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Enforce vulnerability policy and one-time preview risk cap
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}:${{ steps.release.outputs.version }}
+          PREVIEW_EXCEPTION_TAG: api-v0.1.0-preview.1
+          PREVIEW_HIGH_LIMIT: "43"
+          TRIVY_REPORT_PATH: ${{ runner.temp }}/farmly-api-trivy.json
+        run: node .github/scripts/enforce-api-image-scan-policy.mjs
+
+      - name: Generate SPDX SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          scan-ref: ${{ steps.image.outputs.name }}:${{ steps.release.outputs.version }}
+          format: spdx-json
+          output: ${{ runner.temp }}/farmly-api.spdx.json
+          exit-code: "0"
+          version: v0.75.0
+
+      - name: Smoke-test liveness before push
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          container=farmly-api-preview-smoke
+          trap 'docker rm --force farmly-api-preview-smoke >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name "$container" --publish 127.0.0.1::3000 \
+            --env NODE_ENV=production \
+            --env PORT=3000 \
+            --env DATABASE_URL_TENANT=postgresql://farmly:local-only@127.0.0.1:5432/farmly_tenant \
+            --env DATABASE_URL_AUTH=postgresql://farmly:local-only@127.0.0.1:5432/farmly_auth \
+            --env BETTER_AUTH_SECRET=local-smoke-placeholder-only-000000000000 \
+            --env BETTER_AUTH_URL=https://farmly-smoke.invalid \
+            --env SMTP_REQUIRE_TLS=true \
+            --env CURSOR_SIGNING_KEY=local-smoke-cursor-placeholder-000000000000 \
+            "$IMAGE:$VERSION" >/dev/null
+          host_port="$(docker port "$container" 3000/tcp | awk -F: '{print $NF}')"
+          for attempt in $(seq 1 25); do
+            if curl --fail --silent --show-error "http://127.0.0.1:$host_port/health/live" >/dev/null; then
+              echo "Liveness smoke passed on attempt $attempt."
+              exit 0
+            fi
+            sleep 1
+          done
+          state="$(docker inspect "$container" --format '{{.State.Status}} / {{.State.ExitCode}}')"
+          echo "Liveness smoke failed; container state: $state" >&2
+          exit 1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Require an untouched release tag pair
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.release.outputs.version }}
+          REVISION_TAG: ${{ steps.image.outputs.revision }}
+        run: node .github/scripts/assert-ghcr-tags-absent.mjs
+
+      - name: Push preview and full-SHA tags
+        id: push
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.release.outputs.version }}
+          REVISION_TAG: ${{ steps.image.outputs.revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:$REVISION_TAG"
+          version_digest="$(docker buildx imagetools inspect "$IMAGE:$VERSION" | awk '$1 == "Digest:" { print $2; exit }')"
+          revision_digest="$(docker buildx imagetools inspect "$IMAGE:$REVISION_TAG" | awk '$1 == "Digest:" { print $2; exit }')"
+          if [[ -z "$version_digest" || "$version_digest" != "$revision_digest" ]]; then
+            echo "Release tags do not resolve to the same registry digest." >&2
+            exit 1
+          fi
+          echo "digest=$version_digest" >> "$GITHUB_OUTPUT"
+          echo "Published digest: $version_digest"
+
+      - name: Attest image provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest SPDX SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/farmly-api.spdx.json
+          push-to-registry: true

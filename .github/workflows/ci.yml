@@ -81,3 +81,32 @@ jobs:
 
       - name: Contract tests
         run: npm run test:contract
+
+  api-container:
+    name: API container build (no publish)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Test API image release policies
+        run: node --test .github/scripts/assert-api-preview-tag.test.mjs .github/scripts/assert-ghcr-tags-absent.test.mjs .github/scripts/enforce-api-image-scan-policy.test.mjs
+
+      - name: Build production image without publishing
+        run: >-
+          docker buildx build --load --platform linux/amd64 --provenance=false
+          --build-arg BUILD_VERSION=ci
+          --build-arg VCS_REF=${{ github.sha }}
+          --tag farmly-api:ci
+          -f apps/api/Dockerfile apps/api
+
+      - name: Verify runtime image contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker image inspect farmly-api:ci --format '{{.Config.User}}')" = node
+          docker run --rm --entrypoint node farmly-api:ci -e "const fs=require('node:fs'); const required=['/app/node_modules/@prisma/client/index.js','/app/node_modules/.prisma/client/index.js','/app/generated/auth-client/index.js']; const forbidden=['/app/.env','/app/src','/app/test','/app/scripts','/app/node_modules/prisma','/app/node_modules/vitest','/app/node_modules/typescript','/app/node_modules/tsx','/usr/local/lib/node_modules/npm','/usr/local/bin/npm']; const missing=required.filter(x=>!fs.existsSync(x)); const present=forbidden.filter(x=>fs.existsSync(x)); if(missing.length||present.length) { console.error(JSON.stringify({missingRequired:missing,forbiddenPresent:present})); process.exit(1) }"

@@ -4,3 +4,12 @@ coverage
 .env
 .env.*
 *.log
+.git
+.mimosa
+.zcode
+generated
+scripts
+test
+*.pem
+*.key
+*.p12
