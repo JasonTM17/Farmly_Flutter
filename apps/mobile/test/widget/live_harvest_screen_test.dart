@@ -171,10 +171,10 @@ void main() {
         _collection(
           scope,
           harvests: [
-            _harvest('fraction-a', '12.25', '2026-10-19'),
-            _harvest('fraction-b', '8.5', '2026-10-20'),
-            _harvest('fraction-c', '3.75', '2026-10-21'),
-            _harvest('fraction-d', '2.125', '2026-10-22'),
+            _harvest('fraction-a', '12.1', '2026-10-19'),
+            _harvest('fraction-b', '8.2', '2026-10-20'),
+            _harvest('fraction-c', '3.7', '2026-10-21'),
+            _harvest('fraction-d', '2.65', '2026-10-22'),
           ],
         ),
       );
@@ -182,7 +182,7 @@ void main() {
       final confirmed = tester.widget<Text>(
         find.byKey(const ValueKey('live-harvest-confirmed-total')),
       );
-      expect(confirmed.data, contains('26,625'));
+      expect(confirmed.data, contains('26,65'));
     });
 
     testWidgets(
