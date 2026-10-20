@@ -54,8 +54,14 @@ void main() {
       cardShape.borderRadius,
       BorderRadius.circular(FarmSpacing.cardRadius),
     );
-    // Hairline depth strategy: no elevation shadow.
-    expect(theme.cardTheme.elevation, 0);
+    // User-approved clay presentation keeps depth subtle and explicit.
+    expect(theme.cardTheme.elevation, 2);
+    expect(theme.bottomSheetTheme.elevation, 7);
+    expect(theme.dialogTheme.elevation, 5);
+    expect(
+      theme.filledButtonTheme.style!.elevation!.resolve(<WidgetState>{}),
+      2,
+    );
 
     final sheetShape = theme.bottomSheetTheme.shape! as RoundedRectangleBorder;
     expect(

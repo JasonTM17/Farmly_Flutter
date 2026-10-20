@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/theme/farmly_spacing.dart';
@@ -39,14 +41,22 @@ class FarmEntrance extends StatelessWidget {
         curve: drop
             ? Curves.bounceOut
             : pop
-                ? Curves.easeOutBack
-                : Curves.easeOutCubic,
+            ? Curves.easeOutBack
+            : Curves.easeOutCubic,
       ),
       child: child,
       builder: (context, value, child) => Opacity(
         opacity: value.clamp(0.0, 1.0),
         child: Transform.translate(
-          offset: Offset(0, (drop ? -34 : pop ? 26 : 12) * (1 - value)),
+          offset: Offset(
+            0,
+            (drop
+                    ? -34
+                    : pop
+                    ? 26
+                    : 12) *
+                (1 - value),
+          ),
           child: Transform.scale(
             scale: (pop || drop) ? 0.55 + 0.45 * value : 1,
             child: child,
@@ -61,10 +71,9 @@ class FarmEntrance extends StatelessWidget {
 /// [builder] for continuous scenes (cloud drift, pond ripples). Under reduced
 /// motion it renders phase 0 statically and never starts the ticker.
 ///
-/// The phase is quantized to ~12 steps per second: ambient motion (sway,
-/// ripples, drift) reads identically at that rate, but the wrapped subtree —
-/// which is often a whole Stack of CustomPaints — rebuilds/repaints ~5x less
-/// often than a per-frame driver, saving battery on low-end devices.
+/// The phase is quantized to 60 steps per second to keep scene motion aligned
+/// with standard display refresh while sharing one phase across each painter
+/// group.
 class FarmAmbientLoop extends StatefulWidget {
   const FarmAmbientLoop({
     required this.builder,
@@ -81,23 +90,45 @@ class FarmAmbientLoop extends StatefulWidget {
 
 class _FarmAmbientLoopState extends State<FarmAmbientLoop>
     with SingleTickerProviderStateMixin {
-  /// Ambient update rate — 10–15fps keeps organic motion smooth enough.
-  static const int _updatesPerSecond = 12;
+  /// One shared phase step per frame on a standard 60Hz display.
+  static const int _updatesPerSecond = 60;
 
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: widget.period,
-  )..addListener(_onTick);
+  AnimationController? _controller;
 
   double _phase = 0;
   int _lastStep = -1;
 
+  int get _phaseStepCount =>
+      (widget.period.inMicroseconds *
+              _updatesPerSecond /
+              Duration.microsecondsPerSecond)
+          .round();
+
+  bool get _hasValidPeriod =>
+      widget.period > Duration.zero && _phaseStepCount > 0;
+
+  AnimationController _createController() =>
+      AnimationController(vsync: this, duration: widget.period)
+        ..addListener(_onTick);
+
+  void _syncMotion() {
+    final controller = _controller;
+    if (context.farmReducedMotion() || !_hasValidPeriod) {
+      controller?.stop();
+      _phase = 0;
+      _lastStep = -1;
+      return;
+    }
+    final activeController = _controller ??= _createController();
+    if (!activeController.isAnimating) activeController.repeat();
+  }
+
   /// Quantize the controller value; only rebuild the subtree when the step
   /// actually changes, not on every display tick.
   void _onTick() {
-    final steps =
-        (widget.period.inMilliseconds * _updatesPerSecond / 1000).round();
-    final step = (_controller.value * steps).floor();
+    final steps = _phaseStepCount;
+    if (steps <= 0) return;
+    final step = ((_controller?.value ?? 0) * steps).floor();
     if (step == _lastStep) return;
     _lastStep = step;
     setState(() => _phase = step / steps);
@@ -106,28 +137,43 @@ class _FarmAmbientLoopState extends State<FarmAmbientLoop>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (context.farmReducedMotion()) {
-      _controller.stop();
-    } else if (!_controller.isAnimating) {
-      _controller.repeat();
+    _syncMotion();
+  }
+
+  @override
+  void didUpdateWidget(covariant FarmAmbientLoop oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.period == widget.period) return;
+    final controller = _controller;
+    controller?.stop();
+    if (_hasValidPeriod) {
+      controller?.duration = widget.period;
+      final steps = _phaseStepCount;
+      if (controller != null) {
+        _lastStep = (controller.value * steps).floor();
+        _phase = _lastStep / steps;
+      }
+    } else {
+      _phase = 0;
+      _lastStep = -1;
     }
+    _syncMotion();
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (context.farmReducedMotion()) {
+    if (context.farmReducedMotion() || !_hasValidPeriod) {
       return widget.builder(context, 0);
     }
     return widget.builder(context, _phase);
   }
 }
-
 
 /// One-shot dust puff that plays when a map tile lands — small circles
 /// expanding and fading from the tile's bottom edge, like the impact puff
@@ -145,26 +191,57 @@ class FarmDustPuff extends StatefulWidget {
 
 class _FarmDustPuffState extends State<FarmDustPuff>
     with SingleTickerProviderStateMixin {
-  // Nullable on purpose: under reduced motion the controller is never
-  // created, and touching a lazy `late final` in dispose() would construct
-  // a ticker on an already-deactivating element.
+  // A single reusable controller lets reduced-motion changes pause and resume
+  // this one-shot without allocating another ticker from didChangeDependencies.
   AnimationController? _controller;
+  Timer? _startTimer;
+  bool _started = false;
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (context.farmReducedMotion()) return;
-    _controller = AnimationController(
+  void _syncMotion() {
+    if (context.farmReducedMotion()) {
+      _startTimer?.cancel();
+      _startTimer = null;
+      _controller?.stop();
+      return;
+    }
+
+    final controller = _controller ??= AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 420),
     );
-    Future<void>.delayed(widget.delay, () {
-      if (mounted) _controller?.forward();
+    if (_started) {
+      if (!controller.isCompleted && !controller.isAnimating) {
+        controller.forward();
+      }
+      return;
+    }
+    _startTimer ??= Timer(widget.delay, () {
+      _startTimer = null;
+      if (!mounted || context.farmReducedMotion()) return;
+      _started = true;
+      _controller?.forward();
     });
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncMotion();
+  }
+
+  @override
+  void didUpdateWidget(covariant FarmDustPuff oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.delay != widget.delay && !_started) {
+      _startTimer?.cancel();
+      _startTimer = null;
+      _syncMotion();
+    }
+  }
+
+  @override
   void dispose() {
+    _startTimer?.cancel();
     _controller?.dispose();
     super.dispose();
   }
@@ -178,9 +255,7 @@ class _FarmDustPuffState extends State<FarmDustPuff>
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) => CustomPaint(
-        painter: _DustPuffPainter(
-          Curves.easeOut.transform(controller.value),
-        ),
+        painter: _DustPuffPainter(Curves.easeOut.transform(controller.value)),
       ),
     );
   }

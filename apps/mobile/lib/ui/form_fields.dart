@@ -17,6 +17,7 @@ class DecimalField extends StatelessWidget {
     this.helperText,
     this.helperStyle,
     this.autofocus = false,
+    this.enabled = true,
     this.onSubmitted,
     super.key,
   });
@@ -28,6 +29,7 @@ class DecimalField extends StatelessWidget {
   final String? helperText;
   final TextStyle? helperStyle;
   final bool autofocus;
+  final bool enabled;
   final ValueChanged<String>? onSubmitted;
 
   @override
@@ -35,6 +37,7 @@ class DecimalField extends StatelessWidget {
     return TextField(
       controller: controller,
       autofocus: autofocus,
+      enabled: enabled,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: [_DecimalInputFormatter()],
       decoration: InputDecoration(

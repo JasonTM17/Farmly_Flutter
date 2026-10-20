@@ -11,13 +11,15 @@ import 'motion.dart';
 
 /// Localized label for a demo animal category (UI reads arb strings; the
 /// model's `viLabel` stays for demo-data output outside the UI layer).
-String animalCategoryLabel(AppLocalizations l10n, DemoAnimalCategory category) =>
-    switch (category) {
-      DemoAnimalCategory.cows => l10n.animalCategoryCows,
-      DemoAnimalCategory.chickens => l10n.animalCategoryChickens,
-      DemoAnimalCategory.sheep => l10n.animalCategorySheep,
-      DemoAnimalCategory.goats => l10n.animalCategoryGoats,
-    };
+String animalCategoryLabel(
+  AppLocalizations l10n,
+  DemoAnimalCategory category,
+) => switch (category) {
+  DemoAnimalCategory.cows => l10n.animalCategoryCows,
+  DemoAnimalCategory.chickens => l10n.animalCategoryChickens,
+  DemoAnimalCategory.sheep => l10n.animalCategorySheep,
+  DemoAnimalCategory.goats => l10n.animalCategoryGoats,
+};
 
 /// Localized label for a herd's tracking mode.
 String herdModeLabel(AppLocalizations l10n, DemoHerdMode mode) =>
@@ -42,6 +44,7 @@ class AnimalCategoryCard extends StatelessWidget {
     required this.count,
     required this.selected,
     required this.onSelected,
+    this.phase = 0,
     super.key,
   });
 
@@ -49,6 +52,7 @@ class AnimalCategoryCard extends StatelessWidget {
   final int count;
   final bool selected;
   final ValueChanged<bool> onSelected;
+  final double phase;
 
   @override
   Widget build(BuildContext context) {
@@ -62,6 +66,8 @@ class AnimalCategoryCard extends StatelessWidget {
       child: SizedBox(
         width: 96,
         child: Material(
+          elevation: selected ? 3 : 1.5,
+          shadowColor: tokens.brandAction.withValues(alpha: 0.15),
           color: selected
               ? tokens.brandSage.withValues(alpha: 0.35)
               : Theme.of(context).colorScheme.surface,
@@ -83,7 +89,7 @@ class AnimalCategoryCard extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  AnimalPortrait(category: category, size: 44),
+                  AnimalPortrait(category: category, size: 44, phase: phase),
                   const SizedBox(height: FarmSpacing.sm),
                   Text(
                     '$count',
@@ -270,15 +276,12 @@ class _FeedingSlot extends StatelessWidget {
                 : null,
           ),
           const SizedBox(height: FarmSpacing.xs),
-          Text(
-            entry.timeLabel,
-            style: Theme.of(context).textTheme.labelLarge,
-          ),
+          Text(entry.timeLabel, style: Theme.of(context).textTheme.labelLarge),
           Text(
             entry.feedLabel,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: tokens.textSecondary,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: tokens.textSecondary),
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,

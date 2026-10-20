@@ -5,8 +5,8 @@ import '../core/theme/farmly_colors.dart';
 import '../core/theme/farmly_theme_extension.dart';
 import '../l10n/generated/app_localizations.dart';
 
-/// Base card: surface fill, hairline divider border, radius 20, no shadow —
-/// the single depth strategy of the app (spec 02 §2).
+/// Shared clay card: cream surface, a fine rim and restrained theme shadow.
+/// Text and data keep a solid background for contrast.
 class FarmCard extends StatelessWidget {
   const FarmCard({
     required this.child,

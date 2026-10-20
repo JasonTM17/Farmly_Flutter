@@ -5,7 +5,7 @@ import 'farmly_spacing.dart';
 import 'farmly_theme_extension.dart';
 
 /// Canonical Farmly light theme: token palette, one type family, fixed scale,
-/// hairline-only depth (no shadows), rounded cards / sheets / pill buttons.
+/// restrained clay depth, rounded cards / sheets / pill buttons.
 ThemeData buildFarmTheme() {
   const scheme = ColorScheme.light(
     primary: FarmlyColors.brandAction,
@@ -33,7 +33,7 @@ ThemeData buildFarmTheme() {
     inversePrimary: FarmlyColors.brandSage,
     surfaceTint: FarmlyColors.brandAction,
     scrim: FarmlyColors.textPrimary,
-    shadow: FarmlyColors.divider,
+    shadow: FarmlyColors.textPrimary,
   );
 
   final base = ThemeData(
@@ -83,7 +83,8 @@ ThemeData buildFarmTheme() {
     cardTheme: CardThemeData(
       color: FarmlyColors.surface,
       surfaceTintColor: Colors.transparent,
-      elevation: 0,
+      elevation: 2,
+      shadowColor: FarmlyColors.brandAction.withValues(alpha: 0.16),
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
@@ -91,13 +92,14 @@ ThemeData buildFarmTheme() {
         side: const BorderSide(color: FarmlyColors.divider),
       ),
     ),
-    bottomSheetTheme: const BottomSheetThemeData(
+    bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: FarmlyColors.surface,
       surfaceTintColor: Colors.transparent,
-      elevation: 0,
+      elevation: 7,
+      shadowColor: FarmlyColors.textPrimary.withValues(alpha: 0.18),
       showDragHandle: true,
       dragHandleColor: FarmlyColors.divider,
-      shape: RoundedRectangleBorder(
+      shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(FarmSpacing.sheetTopRadius),
         ),
@@ -106,7 +108,8 @@ ThemeData buildFarmTheme() {
     dialogTheme: DialogThemeData(
       backgroundColor: FarmlyColors.surface,
       surfaceTintColor: Colors.transparent,
-      elevation: 0,
+      elevation: 5,
+      shadowColor: FarmlyColors.brandAction.withValues(alpha: 0.18),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(FarmSpacing.cardRadius),
         side: const BorderSide(color: FarmlyColors.divider),
@@ -120,6 +123,8 @@ ThemeData buildFarmTheme() {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
+        elevation: 2,
+        shadowColor: FarmlyColors.brandAction.withValues(alpha: 0.24),
         backgroundColor: FarmlyColors.brandAction,
         foregroundColor: FarmlyColors.onAction,
         disabledBackgroundColor: FarmlyColors.brandSage,

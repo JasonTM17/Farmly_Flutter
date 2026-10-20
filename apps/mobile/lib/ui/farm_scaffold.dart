@@ -214,12 +214,36 @@ class AdaptiveBottomBar extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      selected ? item.filledIcon : item.outlinedIcon,
-                      size: 24,
-                      color: selected
-                          ? tokens.brandAction
-                          : tokens.textSecondary,
+                    Container(
+                      width: 40,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? tokens.brandSage.withValues(alpha: 0.32)
+                            : null,
+                        borderRadius: BorderRadius.circular(12),
+                        border: selected
+                            ? Border.all(color: tokens.divider)
+                            : null,
+                        boxShadow: selected
+                            ? [
+                                BoxShadow(
+                                  color: tokens.brandAction.withValues(
+                                    alpha: 0.08,
+                                  ),
+                                  offset: const Offset(0, 2),
+                                  blurRadius: 3,
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Icon(
+                        selected ? item.filledIcon : item.outlinedIcon,
+                        size: 24,
+                        color: selected
+                            ? tokens.brandAction
+                            : tokens.textSecondary,
+                      ),
                     ),
                     const SizedBox(height: FarmSpacing.xs),
                     Text(
@@ -242,6 +266,8 @@ class AdaptiveBottomBar extends StatelessWidget {
     );
     return Material(
       color: tokens.surface,
+      elevation: 6,
+      shadowColor: tokens.brandAction.withValues(alpha: 0.12),
       child: SafeArea(
         top: false,
         child: Container(
