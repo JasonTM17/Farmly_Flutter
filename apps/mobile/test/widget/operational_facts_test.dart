@@ -8,6 +8,7 @@ import 'package:farmly_mobile/features/demo/demo_providers.dart';
 import 'package:farmly_mobile/features/farm/zone_detail_screen.dart';
 import 'package:farmly_mobile/features/harvest/harvest_screen.dart';
 import 'package:farmly_mobile/features/livestock/livestock_screen.dart';
+import 'package:farmly_mobile/features/livestock/live_livestock.dart';
 import 'package:farmly_mobile/l10n/generated/app_localizations.dart';
 import 'package:farmly_mobile/ui/form_fields.dart';
 
@@ -24,6 +25,7 @@ void main() {
 
   Widget harness(Widget child) {
     return ProviderScope(
+      overrides: [farmlyLivestockDemoPreviewProvider.overrideWithValue(true)],
       child: MaterialApp(
         theme: buildFarmTheme(),
         // Detail widgets read arb strings — pin the vi locale the assertions
@@ -57,43 +59,44 @@ void main() {
   }
 
   group('task occurrences', () {
-    testWidgets('completing a task enqueues a taskOccurrence.transition intent', (
-      tester,
-    ) async {
-      tallViewport(tester);
-      await tester.pumpWidget(
-        harness(const ZoneDetailScreen(zoneId: 'zone-rau-an-la')),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      'completing a task enqueues a taskOccurrence.transition intent',
+      (tester) async {
+        tallViewport(tester);
+        await tester.pumpWidget(
+          harness(const ZoneDetailScreen(zoneId: 'zone-rau-an-la')),
+        );
+        await tester.pumpAndSettle();
 
-      await scrollTo(tester, 'Bón phân bổ sung');
-      final checkboxFinder = find.descendant(
-        of: find
-            .ancestor(
-              of: find.text('Bón phân bổ sung'),
-              matching: find.byType(Row),
-            )
-            .first,
-        matching: find.byType(Checkbox),
-      );
-      expect(tester.widget<Checkbox>(checkboxFinder).value, isFalse);
+        await scrollTo(tester, 'Bón phân bổ sung');
+        final checkboxFinder = find.descendant(
+          of: find
+              .ancestor(
+                of: find.text('Bón phân bổ sung'),
+                matching: find.byType(Row),
+              )
+              .first,
+          matching: find.byType(Checkbox),
+        );
+        expect(tester.widget<Checkbox>(checkboxFinder).value, isFalse);
 
-      await tester.tap(checkboxFinder);
-      await tester.pumpAndSettle();
+        await tester.tap(checkboxFinder);
+        await tester.pumpAndSettle();
 
-      final container = ProviderScope.containerOf(
-        tester.element(find.byType(ZoneDetailScreen)),
-      );
-      final items = container.read(demoDataProvider).syncItems;
-      expect(
-        items.any(
-          (i) =>
-              i.operationType == 'taskOccurrence.transition' &&
-              i.localSummary.contains('Bón phân bổ sung'),
-        ),
-        isTrue,
-      );
-    });
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(ZoneDetailScreen)),
+        );
+        final items = container.read(demoDataProvider).syncItems;
+        expect(
+          items.any(
+            (i) =>
+                i.operationType == 'taskOccurrence.transition' &&
+                i.localSummary.contains('Bón phân bổ sung'),
+          ),
+          isTrue,
+        );
+      },
+    );
 
     testWidgets('overdue and assignee states render non-color indicators', (
       tester,
@@ -129,7 +132,10 @@ void main() {
       await tester.tap(find.text('Cải ngọt').first);
       await tester.pumpAndSettle();
       expect(find.text('Gửi đề xuất'), findsOneWidget);
-      expect(find.textContaining('đề xuất chỉnh sửa để quản lý'), findsOneWidget);
+      expect(
+        find.textContaining('đề xuất chỉnh sửa để quản lý'),
+        findsOneWidget,
+      );
 
       await tester.enterText(
         find.widgetWithText(DecimalField, 'Khối lượng mới (kg)'),
@@ -143,8 +149,9 @@ void main() {
       await tester.pumpAndSettle();
 
       final state = container.read(demoDataProvider);
-      final record = state.harvestsByFarm[farmBaViId]!
-          .firstWhere((r) => r.cropLabel == 'Cải ngọt');
+      final record = state.harvestsByFarm[farmBaViId]!.firstWhere(
+        (r) => r.cropLabel == 'Cải ngọt',
+      );
       expect(record.status, DemoHarvestStatus.correctionPending);
       expect(record.correction?.proposedQuantityKg, '13.0');
       // Original quantity still counts — the proposal is not effective yet.
@@ -205,7 +212,9 @@ void main() {
       await tester.tap(find.text('Huỷ bản ghi'));
       await tester.pumpAndSettle();
 
-      final records = container.read(demoDataProvider).harvestsByFarm[farmBaViId]!;
+      final records = container
+          .read(demoDataProvider)
+          .harvestsByFarm[farmBaViId]!;
       final voided = records.firstWhere((r) => r.cropLabel == 'Cải ngọt');
       expect(voided.status, DemoHarvestStatus.voided);
       final after = records
@@ -268,40 +277,39 @@ void main() {
         '47.5',
       );
       expect(
-        state.syncItems.any(
-          (i) => i.operationType == 'moistureReading.create',
-        ),
+        state.syncItems.any((i) => i.operationType == 'moistureReading.create'),
         isTrue,
       );
     });
 
-    testWidgets('water usage updates usedToday and enqueues waterUsage.create', (
-      tester,
-    ) async {
-      tallViewport(tester);
-      await tester.pumpWidget(
-        harness(const ZoneDetailScreen(zoneId: 'zone-bon-nuoc')),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      'water usage updates usedToday and enqueues waterUsage.create',
+      (tester) async {
+        tallViewport(tester);
+        await tester.pumpWidget(
+          harness(const ZoneDetailScreen(zoneId: 'zone-bon-nuoc')),
+        );
+        await tester.pumpAndSettle();
 
-      await scrollTo(tester, 'Ghi đã dùng');
-      await tester.tap(find.text('Ghi đã dùng'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, '300');
-      await tester.tap(find.text('Lưu'));
-      await tester.pumpAndSettle();
+        await scrollTo(tester, 'Ghi đã dùng');
+        await tester.tap(find.text('Ghi đã dùng'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField).last, '300');
+        await tester.tap(find.text('Lưu'));
+        await tester.pumpAndSettle();
 
-      final container = ProviderScope.containerOf(
-        tester.element(find.byType(ZoneDetailScreen)),
-      );
-      final state = container.read(demoDataProvider);
-      final tank = state.tanksByZone['zone-bon-nuoc']!.first;
-      expect(tank.usedTodayLitres, '750'); // 450 seeded + 300 new
-      expect(
-        state.syncItems.any((i) => i.operationType == 'waterUsage.create'),
-        isTrue,
-      );
-    });
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(ZoneDetailScreen)),
+        );
+        final state = container.read(demoDataProvider);
+        final tank = state.tanksByZone['zone-bon-nuoc']!.first;
+        expect(tank.usedTodayLitres, '750'); // 450 seeded + 300 new
+        expect(
+          state.syncItems.any((i) => i.operationType == 'waterUsage.create'),
+          isTrue,
+        );
+      },
+    );
 
     testWidgets('production record appends to a herd with its own unit', (
       tester,
@@ -313,20 +321,21 @@ void main() {
       final container = ProviderScope.containerOf(
         tester.element(find.byType(LivestockScreen)),
       );
-      container.read(demoDataProvider.notifier).recordProduction(
-        'herd-bo',
-        product: 'milk',
-        quantity: '14.25',
-        unit: 'lít',
-      );
+      container
+          .read(demoDataProvider.notifier)
+          .recordProduction(
+            'herd-bo',
+            product: 'milk',
+            quantity: '14.25',
+            unit: 'lít',
+          );
       final state = container.read(demoDataProvider);
-      expect(
-        state.productionByHerd['herd-bo']?.first.quantity,
-        '14.25',
-      );
+      expect(state.productionByHerd['herd-bo']?.first.quantity, '14.25');
       expect(state.productionByHerd['herd-bo']?.first.unit, 'lít');
       expect(
-        state.syncItems.any((i) => i.operationType == 'productionRecord.create'),
+        state.syncItems.any(
+          (i) => i.operationType == 'productionRecord.create',
+        ),
         isTrue,
       );
     });
@@ -341,11 +350,9 @@ void main() {
       final container = ProviderScope.containerOf(
         tester.element(find.byType(LivestockScreen)),
       );
-      container.read(demoDataProvider.notifier).recordBatchMovement(
-        'herd-ga',
-        -8,
-        'Bán ra chợ',
-      );
+      container
+          .read(demoDataProvider.notifier)
+          .recordBatchMovement('herd-ga', -8, 'Bán ra chợ');
       final herd = container
           .read(demoDataProvider)
           .herdsByFarm[farmBaViId]!

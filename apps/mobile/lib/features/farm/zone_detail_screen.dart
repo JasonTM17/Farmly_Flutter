@@ -10,6 +10,7 @@ import '../../ui/farm_card.dart';
 import '../../ui/form_fields.dart';
 import '../../ui/zone_explorer.dart';
 import '../../ui/motion.dart';
+import '../../ui/farm_scene_details.dart';
 import '../../ui/pickers.dart';
 import '../../ui/screen_states.dart';
 import '../app/app_router.dart';
@@ -113,32 +114,32 @@ class ZoneDetailScreen extends ConsumerWidget {
                       child: FarmAmbientLoop(
                         builder: (context, phase) =>
                             TweenAnimationBuilder<double>(
-                          tween: Tween(begin: 0, end: 1),
-                          duration: context.farmReducedMotion()
-                              ? Duration.zero
-                              : FarmSpacing.entrance * 2,
-                          curve: Curves.easeOutBack,
-                          child: CustomPaint(
-                            painter: IsoZoneTilePainter(
-                              kind: zone.kind,
-                              selected: false,
-                              phase: phase,
-                              name: zone.name,
-                            ),
-                          ),
-                          builder: (context, value, child) =>
-                              Transform.scale(
-                            scale: 0.75 + 0.25 * value,
-                            child: Opacity(
-                              opacity: value.clamp(0.0, 1.0),
-                              child: SizedBox(
-                                width: 240,
-                                height: 150,
-                                child: child,
+                              tween: Tween(begin: 0, end: 1),
+                              duration: context.farmReducedMotion()
+                                  ? Duration.zero
+                                  : FarmSpacing.entrance * 2,
+                              curve: Curves.easeOutBack,
+                              child: CustomPaint(
+                                painter: IsoZoneTilePainter(
+                                  kind: zone.kind,
+                                  selected: false,
+                                  phase: phase,
+                                  name: zone.name,
+                                ),
                               ),
+                              builder: (context, value, child) =>
+                                  Transform.scale(
+                                    scale: 0.75 + 0.25 * value,
+                                    child: Opacity(
+                                      opacity: value.clamp(0.0, 1.0),
+                                      child: SizedBox(
+                                        width: 240,
+                                        height: 150,
+                                        child: child,
+                                      ),
+                                    ),
+                                  ),
                             ),
-                          ),
-                        ),
                       ),
                     ),
                   ),
@@ -155,6 +156,10 @@ class ZoneDetailScreen extends ConsumerWidget {
                 const SizedBox(height: FarmSpacing.md),
               ] else if (zone?.kind == DemoZoneKind.livestock) ...[
                 _LivestockZoneSection(zone: zone!),
+                const SizedBox(height: FarmSpacing.md),
+              ] else if (zone?.kind == DemoZoneKind.storage ||
+                  zone?.kind == DemoZoneKind.house) ...[
+                FarmBuildingInfo(kind: zone!.kind),
                 const SizedBox(height: FarmSpacing.md),
               ] else ...[
                 for (final crop in crops)
@@ -640,13 +645,17 @@ class _WaterTankSection extends ConsumerWidget {
               builder: (context) {
                 final storedNum = double.tryParse(stored);
                 final capNum = double.tryParse(tank.capacityLitres);
-                final level = (storedNum != null && capNum != null && capNum > 0)
+                final level =
+                    (storedNum != null && capNum != null && capNum > 0)
                     ? '${(storedNum / capNum * 100).round()}%'
                     : '—';
                 return Row(
                   children: [
                     Expanded(
-                      child: _TankMetric(label: l10n.tankLevelLabel, value: level),
+                      child: _TankMetric(
+                        label: l10n.tankLevelLabel,
+                        value: level,
+                      ),
                     ),
                     Expanded(
                       child: _TankMetric(
@@ -837,7 +846,7 @@ class _SmartWateringSheetState extends ConsumerState<_SmartWateringSheet> {
             zoneId: widget.zone.id,
             title: l10n.irrigationTaskTitle(litres, widget.zone.name),
             timeLabel: time.isEmpty ? l10n.noTimeSet : time,
-                      ),
+          ),
         );
     Navigator.of(context).pop(true);
   }
@@ -982,7 +991,7 @@ class _TaskDraftSheetState extends ConsumerState<_TaskDraftSheet> {
             zoneId: widget.zoneId,
             title: title,
             timeLabel: time.isEmpty ? l10n.noTimeSet : time,
-                      ),
+          ),
         );
     Navigator.of(context).pop(true);
   }
@@ -1227,9 +1236,7 @@ class _MoistureDialogState extends State<_MoistureDialog> {
     final raw = _controller.text.trim().replaceAll(',', '.');
     final parsed = double.tryParse(raw);
     if (raw.isEmpty || parsed == null || parsed < 0 || parsed > 100) {
-      setState(
-        () => _error = AppLocalizations.of(context).moistureErrorRange,
-      );
+      setState(() => _error = AppLocalizations.of(context).moistureErrorRange);
       return;
     }
     Navigator.of(context).pop(raw);
@@ -1272,8 +1279,9 @@ class _ZoneSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = FarmThemeExtension.of(context);
     final l10n = AppLocalizations.of(context);
-    final tracked =
-        crops.where((crop) => crop.manualProgressPercent != null).toList();
+    final tracked = crops
+        .where((crop) => crop.manualProgressPercent != null)
+        .toList();
     final mean = tracked.isEmpty
         ? null
         : tracked.fold<int>(
@@ -1295,16 +1303,13 @@ class _ZoneSummaryCard extends StatelessWidget {
                   color: tokens.brandSage.withValues(alpha: 0.35),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(
-                  switch (zone.kind) {
-                    DemoZoneKind.crop => Icons.grass,
-                    DemoZoneKind.livestock => Icons.pets,
-                    DemoZoneKind.water => Icons.water_drop,
-                    DemoZoneKind.storage => Icons.warehouse,
-                    DemoZoneKind.house => Icons.home,
-                  },
-                  color: tokens.brandAction,
-                ),
+                child: Icon(switch (zone.kind) {
+                  DemoZoneKind.crop => Icons.grass,
+                  DemoZoneKind.livestock => Icons.pets,
+                  DemoZoneKind.water => Icons.water_drop,
+                  DemoZoneKind.storage => Icons.warehouse,
+                  DemoZoneKind.house => Icons.home,
+                }, color: tokens.brandAction),
               ),
               const SizedBox(width: FarmSpacing.md),
               Expanded(

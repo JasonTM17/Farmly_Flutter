@@ -4,10 +4,12 @@ import 'package:go_router/go_router.dart';
 
 import '../core/auth/auth_session_controller.dart';
 import '../core/notifications/notifications_repository.dart';
+import '../core/sync/sync_providers.dart';
 import '../core/theme/farmly_spacing.dart';
 import '../core/theme/farmly_theme_extension.dart';
 import '../features/app/app_routes.dart';
 import '../features/demo/demo_providers.dart';
+import '../features/farm/farm_creation_sheet.dart';
 import '../features/organizations/organization_repository.dart';
 import '../features/organizations/organization_scope_controller.dart';
 import '../l10n/generated/app_localizations.dart';
@@ -16,14 +18,22 @@ import 'screen_states.dart';
 /// Farm picker bottom sheet. Every row shows **org name + farm name** so the
 /// tenant is never ambiguous (spec 02 §3).
 Future<void> showFarmPickerSheet(BuildContext context) {
+  final rootContext = context;
   return showModalBottomSheet<void>(
-    context: context,
+    context: rootContext,
     isScrollControlled: true,
     builder: (sheetContext) => Consumer(
       builder: (context, ref, _) {
         final l10n = AppLocalizations.of(context);
         final liveScope = ref.watch(selectedOrganizationScopeProvider);
         final demoState = ref.watch(demoDataProvider);
+        final canManageFarms =
+            liveScope != null &&
+            liveScope.organization.status == FarmlyOrganizationStatus.active &&
+            (liveScope.organization.role == FarmlyOrganizationRole.owner ||
+                liveScope.organization.role == FarmlyOrganizationRole.admin);
+        final syncReady =
+            canManageFarms && ref.watch(syncEngineProvider).hasValue;
         final liveFarms = liveScope?.directory.farms
             .where((farm) => farm.status == FarmlyFarmStatus.active)
             .toList(growable: false);
@@ -126,6 +136,33 @@ Future<void> showFarmPickerSheet(BuildContext context) {
                       },
                     ),
                   ),
+              ],
+              if (syncReady) ...[
+                const SizedBox(height: FarmSpacing.sm),
+                OutlinedButton.icon(
+                  key: const ValueKey('farm-picker-create-farm'),
+                  onPressed: () async {
+                    Navigator.of(sheetContext).pop();
+                    final withFirstZone = await showModalBottomSheet<bool>(
+                      context: rootContext,
+                      isScrollControlled: true,
+                      useSafeArea: true,
+                      builder: (_) => const FarmCreationSheet(),
+                    );
+                    if (!rootContext.mounted || withFirstZone == null) return;
+                    ScaffoldMessenger.of(rootContext).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          withFirstZone
+                              ? l10n.farmAndZoneSavedOffline
+                              : l10n.farmSavedOffline,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.add_business_outlined),
+                  label: Text(l10n.createFarm),
+                ),
               ],
               Padding(
                 padding: const EdgeInsets.only(top: FarmSpacing.sm),
@@ -285,8 +322,7 @@ class _LiveNotificationList extends ConsumerStatefulWidget {
       _LiveNotificationListState();
 }
 
-class _LiveNotificationListState
-    extends ConsumerState<_LiveNotificationList> {
+class _LiveNotificationListState extends ConsumerState<_LiveNotificationList> {
   late Future<List<AppNotification>> _feed;
 
   @override

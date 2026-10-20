@@ -10,6 +10,7 @@ import '../auth/splash_screen.dart';
 import '../chat/chat_screens.dart';
 import '../demo/demo_providers.dart';
 import '../farm/zone_detail_screen.dart';
+import '../harvest/live_harvest_screen.dart';
 import '../livestock/livestock_screen.dart';
 import '../organizations/organization_flow_screens.dart';
 import '../organizations/organization_scope_controller.dart';
@@ -18,7 +19,6 @@ import 'app_routes.dart';
 import 'app_shell.dart';
 import '../analytics/analytics_screen.dart';
 import '../farm/farm_overview_screen.dart';
-import '../harvest/harvest_screen.dart';
 import '../home/home_screen.dart';
 import '../profile/profile_screen.dart';
 
@@ -130,7 +130,7 @@ final farmlyRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: AppRoutes.harvest,
-                builder: (context, state) => const HarvestScreen(),
+                builder: (context, state) => const FarmlyLiveHarvestScreen(),
               ),
             ],
           ),

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:farmly_mobile/core/auth/auth_session_controller.dart';
 import 'package:farmly_mobile/core/auth/farmly_auth_models.dart';
+import 'package:farmly_mobile/core/sync/sync_providers.dart';
 import 'package:farmly_mobile/core/theme/farm_theme.dart';
 import 'package:farmly_mobile/features/analytics/analytics_screen.dart';
 import 'package:farmly_mobile/features/app/app_shell.dart';
@@ -136,6 +137,9 @@ Future<GoRouter> pumpFarmlyShell(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        // This harness exercises the illustrated Farm Explorer preview.
+        // Live-farm tests provide their own authorized sync scope explicitly.
+        farmlySyncScopeProvider.overrideWith((ref) async => null),
         farmlyAuthSessionProvider.overrideWith(
           _AuthenticatedSessionController.new,
         ),

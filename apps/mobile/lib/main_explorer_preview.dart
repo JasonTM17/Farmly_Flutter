@@ -7,12 +7,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/auth/auth_session_controller.dart';
+import 'core/auth/better_auth_client.dart';
+import 'core/sync/sync_providers.dart';
 import 'core/auth/farmly_auth_models.dart';
 import 'core/network/farmly_api_client.dart';
 import 'core/storage/secure_secret_store.dart';
 import 'core/theme/farm_theme.dart';
 import 'features/demo/demo_providers.dart' show farmBaViId;
 import 'features/analytics/analytics_screen.dart';
+import 'features/auth/login_screen.dart';
+import 'features/auth/auth_flow_screens.dart';
+import 'features/auth/splash_screen.dart';
 import 'features/app/app_router.dart' show ChatRouteArguments;
 import 'features/app/app_routes.dart';
 import 'features/app/app_shell.dart';
@@ -22,6 +27,7 @@ import 'features/farm/zone_detail_screen.dart';
 import 'features/harvest/harvest_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/livestock/livestock_screen.dart';
+import 'features/livestock/live_livestock.dart';
 import 'features/organizations/organization_flow_screens.dart';
 import 'features/organizations/organization_repository.dart';
 import 'features/organizations/organization_scope_controller.dart';
@@ -203,6 +209,35 @@ void main() {
   final router = GoRouter(
     initialLocation: AppRoutes.farm,
     routes: [
+      // Existing authentication surfaces are available for visual inspection.
+      // Their adapter is local; no live auth action can leave this preview.
+      GoRoute(path: AppRoutes.splash, builder: (_, _) => const SplashScreen()),
+      GoRoute(path: AppRoutes.login, builder: (_, _) => const LoginScreen()),
+      GoRoute(path: AppRoutes.signup, builder: (_, _) => const SignUpScreen()),
+      GoRoute(
+        path: AppRoutes.verifyEmail,
+        builder: (_, _) => const VerifyEmailScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.emailVerified,
+        builder: (_, _) => const EmailVerifiedScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.forgotPassword,
+        builder: (_, _) => const ForgotPasswordScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.resetPassword,
+        builder: (_, _) => const ResetPasswordScreen(token: null),
+      ),
+      GoRoute(
+        path: AppRoutes.invitation,
+        builder: (_, _) => const InvitationAcceptanceScreen(
+          organizationId: null,
+          invitationId: null,
+          token: null,
+        ),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
             AppShell(navigationShell: navigationShell),
@@ -295,6 +330,14 @@ void main() {
     redirect: (context, state) {
       final path = state.uri.path;
       const known = {
+        AppRoutes.splash,
+        AppRoutes.login,
+        AppRoutes.signup,
+        AppRoutes.verifyEmail,
+        AppRoutes.emailVerified,
+        AppRoutes.forgotPassword,
+        AppRoutes.resetPassword,
+        AppRoutes.invitation,
         AppRoutes.home,
         AppRoutes.farm,
         AppRoutes.livestock,
@@ -315,6 +358,23 @@ void main() {
   runApp(
     ProviderScope(
       overrides: [
+        // Visual preview data is explicit; signed-in production routes never
+        // infer demo mode from a selected farm or stub session.
+        farmlyLivestockDemoPreviewProvider.overrideWithValue(true),
+        // Preview journeys must never resolve a disk-backed outbox, even when
+        // the demo has a stub signed-in session. Keep persisted app data intact.
+        farmlySyncScopeProvider.overrideWith((ref) async => null),
+        syncEngineProvider.overrideWith((ref) async {
+          throw StateError('Persistent sync is unavailable in visual preview');
+        }),
+        betterAuthClientProvider.overrideWith((ref) {
+          final dio = Dio()..httpClientAdapter = _PreviewApiAdapter();
+          ref.onDispose(dio.close);
+          return BetterAuthClient(
+            apiBaseUrl: Uri.parse('https://preview.invalid/'),
+            dio: dio,
+          );
+        }),
         farmlyAuthSessionProvider.overrideWith(_PreviewSessionController.new),
         selectedOrganizationScopeProvider.overrideWith(
           _PreviewScopeController.new,

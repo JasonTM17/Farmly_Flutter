@@ -158,6 +158,40 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('scrolling the login form keeps the keyboard open', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final (_, router) = await pumpApp(tester);
+    router.go(AppRoutes.login);
+    await tester.pumpAndSettle();
+
+    final password = find.byType(TextField).at(1);
+    final submit = find.widgetWithText(FilledButton, 'Sign in');
+    await tester.tap(password);
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isTrue);
+
+    tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+    await tester.pumpAndSettle();
+    const usableBottom = 844 - 320;
+    expect(tester.getBottomRight(submit).dy, greaterThan(usableBottom));
+
+    await tester.drag(
+      find.byType(SingleChildScrollView).first,
+      const Offset(0, -260),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.testTextInput.isVisible, isTrue);
+    expect(tester.view.viewInsets.bottom, 320);
+    expect(tester.getBottomRight(submit).dy, lessThanOrEqualTo(usableBottom));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('login fits supported widths, landscape and 200% text', (
     tester,
   ) async {

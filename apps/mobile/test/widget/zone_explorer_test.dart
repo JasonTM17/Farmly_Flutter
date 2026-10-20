@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:farmly_mobile/core/theme/farm_theme.dart';
@@ -7,7 +8,9 @@ import 'package:farmly_mobile/features/farm/farm_overview_screen.dart';
 import 'package:farmly_mobile/features/farm/zone_detail_screen.dart';
 import 'package:farmly_mobile/l10n/generated/app_localizations.dart';
 import 'package:farmly_mobile/ui/farm_scaffold.dart';
+import 'package:farmly_mobile/ui/motion.dart';
 import 'package:farmly_mobile/ui/zone_explorer.dart';
+import 'package:farmly_mobile/ui/farm_scene_accents.dart';
 
 import '../support/farmly_shell_harness.dart';
 
@@ -43,11 +46,12 @@ void main() {
     ),
   ];
 
-  Finder hotspotOf(String name) => find.bySemanticsLabel(
-    RegExp('Vùng $name\\. Chạm để chọn'),
-  );
+  Finder hotspotOf(String name) =>
+      find.bySemanticsLabel(RegExp('Vùng $name\\. Chạm để mở chi tiết'));
 
   Widget explorerHarness({
+    List<DemoZone> sceneZones = zones,
+    bool reducedMotion = true,
     String? selectedId,
     ValueChanged<String?>? onSelect,
     ValueChanged<DemoZone>? onOpenDetail,
@@ -59,23 +63,23 @@ void main() {
       locale: const Locale('vi'),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      // Deterministic frames: ambient loops stay static so pumpAndSettle
-      // terminates and entrances render at their resting state.
+      // Existing interaction tests stay deterministic by default. Animation
+      // regressions opt in to the ambient loop and advance it with pump().
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(disableAnimations: true),
+        data: MediaQuery.of(context).copyWith(disableAnimations: reducedMotion),
         child: child ?? const SizedBox.shrink(),
       ),
       home: Scaffold(
         body: Column(
           children: [
             ZoneChipStrip(
-              zones: zones,
+              zones: sceneZones,
               selectedZoneId: selectedId,
               onSelect: onSelect ?? (_) {},
             ),
             Expanded(
               child: ZoneScene(
-                zones: zones,
+                zones: sceneZones,
                 selectedZoneId: selectedId,
                 onSelect: (id) => onSelect?.call(id),
                 onOpenDetail: onOpenDetail ?? (_) {},
@@ -86,6 +90,329 @@ void main() {
       ),
     );
   }
+
+  List<IsoZoneTilePainter> zonePainters(WidgetTester tester) => tester
+      .widgetList<CustomPaint>(find.byType(CustomPaint))
+      .map((paint) => paint.painter)
+      .whereType<IsoZoneTilePainter>()
+      .toList();
+
+  double groundPhase(WidgetTester tester) {
+    final groundPainters = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((paint) => paint.painter)
+        .where(
+          (painter) =>
+              painter.runtimeType.toString().contains('IsoGroundPainter'),
+        )
+        .toList();
+    expect(groundPainters, hasLength(1));
+    // The ground painter is intentionally library-private. Its public phase
+    // field is inspected dynamically so the test can cover tree motion
+    // without widening production visibility just for tests.
+    return (groundPainters.single as dynamic).phase as double;
+  }
+
+  testWidgets('meadow opens its scene without adding an operational zone', (
+    tester,
+  ) async {
+    var selections = 0;
+    await tester.pumpWidget(explorerHarness(onSelect: (_) => selections++));
+    await tester.pumpAndSettle();
+    final meadow = find.bySemanticsLabel(RegExp('^Đồng cỏ, chạm để xem bò'));
+    expect(meadow, findsOneWidget);
+    final semantics = tester.getSemantics(meadow).getSemanticsData();
+    expect(semantics.hasAction(SemanticsAction.tap), isTrue);
+    expect(zonePainters(tester), hasLength(zones.length));
+    expect(
+      find.bySemanticsLabel(RegExp(r'^Vùng .*Chạm để mở chi tiết')),
+      findsNWidgets(3),
+    );
+    expect(tester.widget<ZoneScene>(find.byType(ZoneScene)).zones, zones);
+    await tester.tapAt(tester.getCenter(meadow));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('farm-meadow-sheet')), findsOneWidget);
+    await tester.tap(find.byTooltip('Đóng'));
+    await tester.pumpAndSettle();
+    expect(selections, 0);
+    final meadowPainter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((paint) => paint.painter)
+        .whereType<FarmMeadowPainter>()
+        .single;
+    expect(meadowPainter.phase, 0, reason: 'Reduced motion freezes cows too');
+  });
+
+  testWidgets('meadow only occupies genuinely vacant odd final right cells', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    for (final count in [1, 2, 3, 4, 6, 7, 8]) {
+      final sceneZones = List.generate(
+        count,
+        (index) => DemoZone(
+          id: 'zone-$index',
+          farmId: 'farm-1',
+          name: 'Khu $index',
+          kind: DemoZoneKind.crop,
+          x: 0.3,
+          y: 0.4,
+        ),
+      );
+      await tester.pumpWidget(explorerHarness(sceneZones: sceneZones));
+      await tester.pumpAndSettle();
+      expect(
+        find.bySemanticsLabel(RegExp('^Đồng cỏ, chạm để xem bò')),
+        count >= 3 && count.isOdd ? findsOneWidget : findsNothing,
+        reason: '$count real zones',
+      );
+      expect(zonePainters(tester), hasLength(count));
+    }
+  });
+
+  testWidgets(
+    'wide short viewport omits meadow when previous row cannot clear',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final sceneZones = List.generate(
+        7,
+        (index) => DemoZone(
+          id: 'zone-$index',
+          farmId: 'farm-1',
+          name: 'Khu $index',
+          kind: DemoZoneKind.crop,
+          x: 0.3,
+          y: 0.4,
+        ),
+      );
+      await tester.pumpWidget(explorerHarness(sceneZones: sceneZones));
+      await tester.pumpAndSettle();
+      expect(
+        find.bySemanticsLabel(RegExp('^Đồng cỏ, chạm để xem bò')),
+        findsNothing,
+      );
+      expect(zonePainters(tester), hasLength(7));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'seven-zone fitted meadow clears reset and add controls at 360dp',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final sceneZones = List.generate(
+        7,
+        (index) => DemoZone(
+          id: 'zone-$index',
+          farmId: 'farm-1',
+          name: 'Khu $index',
+          kind: DemoZoneKind.crop,
+          x: 0.3,
+          y: 0.4,
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildFarmTheme(),
+          locale: const Locale('vi'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: ZoneScene(
+              zones: sceneZones,
+              selectedZoneId: null,
+              onSelect: (_) {},
+              onOpenDetail: (_) {},
+              onAdd: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final meadowRect = tester.getRect(
+        find.bySemanticsLabel(RegExp('^Đồng cỏ, chạm để xem bò')),
+      );
+      final resetRect = tester.getRect(find.byTooltip('Đặt lại khung nhìn'));
+      final addRect = tester.getRect(
+        find
+            .ancestor(
+              of: find.byIcon(Icons.add),
+              matching: find.byType(InkWell),
+            )
+            .first,
+      );
+      final geometry = 'meadow=$meadowRect reset=$resetRect add=$addRect';
+      expect(
+        meadowRect.overlaps(resetRect.inflate(8)),
+        isFalse,
+        reason: 'Keep 8dp clear of reset: $geometry',
+      );
+      expect(
+        meadowRect.overlaps(addRect.inflate(8)),
+        isFalse,
+        reason: 'Keep 8dp clear of add: $geometry',
+      );
+      final sceneRect = tester.getRect(find.byType(ZoneScene));
+      expect(sceneRect.contains(meadowRect.topLeft), isTrue);
+      expect(sceneRect.contains(meadowRect.bottomRight), isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'crop, tree and livestock art share ambient phase; reduced motion freezes it',
+    (tester) async {
+      await tester.pumpWidget(explorerHarness(reducedMotion: false));
+      await tester.pump(const Duration(milliseconds: 250));
+
+      final animatedTiles = zonePainters(tester);
+      expect(animatedTiles, hasLength(zones.length));
+      expect(
+        animatedTiles.map((painter) => painter.phase).toSet(),
+        hasLength(1),
+      );
+      expect(animatedTiles.first.phase, greaterThan(0));
+      expect(groundPhase(tester), animatedTiles.first.phase);
+
+      await tester.pumpWidget(explorerHarness(reducedMotion: true));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(zonePainters(tester).map((painter) => painter.phase).toSet(), {
+        0.0,
+      });
+      expect(groundPhase(tester), 0);
+    },
+  );
+
+  testWidgets('ambient motion advances smoothly at 60 steps per second', (
+    tester,
+  ) async {
+    var phase = 0.0;
+    Widget harness({required bool reducedMotion}) => MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(disableAnimations: reducedMotion),
+        child: child ?? const SizedBox.shrink(),
+      ),
+      home: Scaffold(
+        body: FarmAmbientLoop(
+          period: const Duration(seconds: 1),
+          builder: (context, value) {
+            phase = value;
+            return const SizedBox.expand();
+          },
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(harness(reducedMotion: false));
+    await tester.pump(const Duration(milliseconds: 17));
+    expect(phase, closeTo(1 / 60, 0.001));
+    await tester.pump(const Duration(milliseconds: 17));
+    expect(phase, closeTo(2 / 60, 0.001));
+
+    await tester.pumpWidget(harness(reducedMotion: true));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(phase, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ambient loop keeps a finite still phase for sub-step periods', (
+    tester,
+  ) async {
+    for (final period in [Duration.zero, const Duration(milliseconds: 8)]) {
+      var phase = double.nan;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FarmAmbientLoop(
+              key: ValueKey(period.inMicroseconds),
+              period: period,
+              builder: (context, value) {
+                phase = value;
+                return const SizedBox.expand();
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(phase, 0);
+      expect(phase.isFinite, isTrue);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('ambient loop stops when its period becomes too short', (
+    tester,
+  ) async {
+    var period = const Duration(seconds: 1);
+    var phase = 0.0;
+    Widget harness() => MaterialApp(
+      home: Scaffold(
+        body: FarmAmbientLoop(
+          period: period,
+          builder: (context, value) {
+            phase = value;
+            return const SizedBox.expand();
+          },
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(harness());
+    await tester.pump(const Duration(milliseconds: 17));
+    expect(phase, closeTo(1 / 60, 0.001));
+
+    period = const Duration(milliseconds: 8);
+    await tester.pumpWidget(harness());
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(phase, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dust puff reuses its ticker across reduced-motion changes', (
+    tester,
+  ) async {
+    Widget harness({required bool reducedMotion}) => MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(disableAnimations: reducedMotion),
+        child: child ?? const SizedBox.shrink(),
+      ),
+      home: const Scaffold(
+        body: SizedBox(
+          width: 48,
+          height: 24,
+          child: FarmDustPuff(delay: Duration.zero),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(harness(reducedMotion: false));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.pumpWidget(harness(reducedMotion: true));
+    await tester.pump();
+    await tester.pumpWidget(harness(reducedMotion: false));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.pumpWidget(harness(reducedMotion: true));
+    await tester.pump();
+    await tester.pumpWidget(harness(reducedMotion: false));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('chip strip exposes every zone id and reports selection', (
     tester,
@@ -121,53 +448,54 @@ void main() {
     }
   });
 
-  testWidgets('hotspot tap selects, zooms in, and reset restores 48dp control', (
-    tester,
-  ) async {
-    String? selected;
-    // Stateful: the parent echoes selectedZoneId back into ZoneScene, which
-    // is the single camera path (didUpdateWidget → focus/reset).
-    await tester.pumpWidget(
-      StatefulBuilder(
-        builder: (context, setState) => explorerHarness(
-          selectedId: selected,
-          onSelect: (id) => setState(() => selected = id),
+  testWidgets(
+    'hotspot tap selects, zooms in, and reset restores 48dp control',
+    (tester) async {
+      String? selected;
+      // Stateful: the parent echoes selectedZoneId back into ZoneScene, which
+      // is the single camera path (didUpdateWidget → focus/reset).
+      await tester.pumpWidget(
+        StatefulBuilder(
+          builder: (context, setState) => explorerHarness(
+            selectedId: selected,
+            onSelect: (id) => setState(() => selected = id),
+          ),
         ),
-      ),
-    );
-    // The whole-board fit is applied post-frame — settle before tapping so
-    // tiles sit at their transformed positions inside the clipped viewport.
-    await tester.pumpAndSettle();
+      );
+      // The whole-board fit is applied post-frame — settle before tapping so
+      // tiles sit at their transformed positions inside the clipped viewport.
+      await tester.pumpAndSettle();
 
-    final viewer = tester.widget<InteractiveViewer>(
-      find.byType(InteractiveViewer),
-    );
-    final restScale = viewer.transformationController?.value
-        .getMaxScaleOnAxis();
+      final viewer = tester.widget<InteractiveViewer>(
+        find.byType(InteractiveViewer),
+      );
+      final restScale = viewer.transformationController?.value
+          .getMaxScaleOnAxis();
 
-    await tester.tap(hotspotOf(zones[1].name));
-    // InkWell defers onTap until the double-tap timeout (~300ms) elapses.
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
-    expect(selected, zones[1].id);
+      await tester.tap(hotspotOf(zones[1].name));
+      // InkWell defers onTap until the double-tap timeout (~300ms) elapses.
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(selected, zones[1].id);
 
-    final scale = viewer.transformationController?.value.getMaxScaleOnAxis();
-    expect(scale, isNotNull);
-    expect(scale!, greaterThan(1.0));
+      final scale = viewer.transformationController?.value.getMaxScaleOnAxis();
+      expect(scale, isNotNull);
+      expect(scale!, greaterThan(1.0));
 
-    final reset = find.byTooltip('Đặt lại khung nhìn');
-    expect(reset, findsOneWidget);
-    final resetSize = tester.getSize(reset);
-    expect(resetSize.width, greaterThanOrEqualTo(48));
-    expect(resetSize.height, greaterThanOrEqualTo(48));
-    await tester.tap(reset);
-    await tester.pumpAndSettle();
-    // Reset returns to the fitted board transform, not raw identity.
-    expect(
-      viewer.transformationController?.value.getMaxScaleOnAxis(),
-      closeTo(restScale!, 0.001),
-    );
-  });
+      final reset = find.byTooltip('Đặt lại khung nhìn');
+      expect(reset, findsOneWidget);
+      final resetSize = tester.getSize(reset);
+      expect(resetSize.width, greaterThanOrEqualTo(48));
+      expect(resetSize.height, greaterThanOrEqualTo(48));
+      await tester.tap(reset);
+      await tester.pumpAndSettle();
+      // Reset returns to the fitted board transform, not raw identity.
+      expect(
+        viewer.transformationController?.value.getMaxScaleOnAxis(),
+        closeTo(restScale!, 0.001),
+      );
+    },
+  );
 
   testWidgets('accessible list exposes the same ids and opens detail', (
     tester,

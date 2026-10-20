@@ -8,13 +8,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:farmly_mobile/core/auth/auth_session_controller.dart';
 import 'package:farmly_mobile/core/auth/farmly_auth_models.dart';
 import 'package:farmly_mobile/core/theme/farm_theme.dart';
+import 'package:farmly_mobile/core/theme/farmly_spacing.dart';
 import 'package:farmly_mobile/features/auth/login_screen.dart';
 import 'package:farmly_mobile/features/livestock/livestock_screen.dart';
+import 'package:farmly_mobile/features/livestock/live_livestock.dart';
 import 'package:farmly_mobile/features/auth/splash_screen.dart';
 import 'package:farmly_mobile/features/demo/demo_models.dart';
 import 'package:farmly_mobile/features/demo/demo_providers.dart';
 import 'package:farmly_mobile/l10n/generated/app_localizations.dart';
 import 'package:farmly_mobile/ui/farm_scaffold.dart';
+import 'package:farmly_mobile/ui/illustrations.dart';
+import 'package:farmly_mobile/ui/livestock_components.dart';
+import 'package:farmly_mobile/ui/motion.dart';
 import 'package:farmly_mobile/ui/zone_explorer.dart';
 
 import '../support/farmly_shell_harness.dart';
@@ -35,15 +40,15 @@ void _usePhoneViewport(WidgetTester tester) {
   addTearDown(tester.view.reset);
 }
 
-// Golden frames are deterministic: disableAnimations makes every ambient
-// loop render its phase-0 layout and every entrance its resting state.
-Widget _localizedApp(Widget home) => MaterialApp(
+// Existing reference frames are deterministic by default. Dedicated P13
+// captures opt into the shared ambient loop and advance it by fixed durations.
+Widget _localizedApp(Widget home, {bool reducedMotion = true}) => MaterialApp(
   theme: buildFarmTheme(),
   locale: const Locale('vi'),
   localizationsDelegates: AppLocalizations.localizationsDelegates,
   supportedLocales: AppLocalizations.supportedLocales,
   builder: (context, child) => MediaQuery(
-    data: MediaQuery.of(context).copyWith(disableAnimations: true),
+    data: MediaQuery.of(context).copyWith(disableAnimations: reducedMotion),
     child: child ?? const SizedBox.shrink(),
   ),
   home: home,
@@ -140,6 +145,12 @@ void main() {
     ('zone-rau-an-la', 'zone-detail-vi', 'Tăng trưởng'),
     ('zone-bon-nuoc', 'zone-detail-water-vi', 'Mực nước'),
     ('zone-chuong-ga', 'zone-detail-livestock-vi', 'Khu chăn nuôi'),
+    ('zone-kho', 'zone-detail-storage-vi', 'Không gian dụng cụ & vật tư'),
+    (
+      'zone-nha-xuong',
+      'zone-detail-house-vi',
+      'Không gian làm việc của nông trại',
+    ),
   ]) {
     testWidgets('zone detail $name reference', (tester) async {
       final router = await pumpFarmlyShell(tester);
@@ -157,7 +168,10 @@ void main() {
   testWidgets('livestock reference', (tester) async {
     _usePhoneViewport(tester);
     await tester.pumpWidget(
-      const ProviderScope(child: _LivestockApp()),
+      ProviderScope(
+        overrides: [farmlyLivestockDemoPreviewProvider.overrideWithValue(true)],
+        child: const _LivestockApp(),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -166,6 +180,166 @@ void main() {
     await expectLater(
       find.byType(LivestockScreen),
       matchesGoldenFile('goldens/livestock-vi.png'),
+    );
+  });
+
+  testWidgets('Farm Explorer meadow closeup opens from map', (tester) async {
+    await pumpFarmlyShell(tester);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AdaptiveBottomBar),
+        matching: find.text('Nông trại'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('farm-meadow-hotspot')));
+    await tester.pumpAndSettle();
+    await expectLater(
+      find.byKey(const ValueKey('farm-meadow-sheet')),
+      matchesGoldenFile('goldens/farm-meadow-closeup-vi.png'),
+    );
+  });
+
+  testWidgets('Farm Explorer fitted low-poly scene at 360dp', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      _localizedApp(const _FarmLifeScene(), reducedMotion: false),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+
+    final phases = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((paint) => paint.painter)
+        .whereType<IsoZoneTilePainter>()
+        .map((painter) => painter.phase)
+        .toSet();
+    expect(phases, hasLength(1));
+    expect(phases.single, greaterThan(0));
+    await expectLater(
+      find.byType(_FarmLifeScene),
+      matchesGoldenFile('goldens/farm-life-fitted-motion-360-vi.png'),
+    );
+  });
+
+  testWidgets('Farm Explorer reduced-motion still at 360dp', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(_localizedApp(const _FarmLifeScene()));
+    await tester.pump(const Duration(seconds: 1));
+
+    final phases = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((paint) => paint.painter)
+        .whereType<IsoZoneTilePainter>()
+        .map((painter) => painter.phase)
+        .toSet();
+    expect(phases, {0.0});
+    await expectLater(
+      find.byType(_FarmLifeScene),
+      matchesGoldenFile('goldens/farm-life-reduced-motion-360-vi.png'),
+    );
+  });
+
+  testWidgets('Farm Explorer zoomed animal scene at 360dp', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      _localizedApp(const _FarmLifeScene(), reducedMotion: false),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.tap(
+      find.bySemanticsLabel(RegExp('Vùng Chuồng gà\\. Chạm để mở chi tiết')),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<ZoneScene>(find.byType(ZoneScene)).selectedZoneId,
+      'zone-chuong-ga',
+    );
+
+    final viewer = tester.widget<InteractiveViewer>(
+      find.descendant(
+        of: find.byType(ZoneScene),
+        matching: find.byType(InteractiveViewer),
+      ),
+    );
+    var scale = viewer.transformationController!.value.getMaxScaleOnAxis();
+    for (var frame = 0; frame < 12 && scale <= 2; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      scale = viewer.transformationController!.value.getMaxScaleOnAxis();
+    }
+    expect(scale, greaterThan(2));
+    await tester.pump(const Duration(milliseconds: 200));
+    await expectLater(
+      find.byType(_FarmLifeScene),
+      matchesGoldenFile('goldens/farm-life-zoomed-motion-360-vi.png'),
+    );
+  });
+
+  testWidgets('Farm Explorer zoomed crop scene at 360dp', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      _localizedApp(const _FarmLifeScene(), reducedMotion: false),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.tap(
+      find.bySemanticsLabel(RegExp('Vùng Cà chua giàn\\. Chạm để mở chi tiết')),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<ZoneScene>(find.byType(ZoneScene)).selectedZoneId,
+      'zone-ca-chua',
+    );
+
+    final viewer = tester.widget<InteractiveViewer>(
+      find.descendant(
+        of: find.byType(ZoneScene),
+        matching: find.byType(InteractiveViewer),
+      ),
+    );
+    var scale = viewer.transformationController!.value.getMaxScaleOnAxis();
+    for (var frame = 0; frame < 12 && scale <= 2; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      scale = viewer.transformationController!.value.getMaxScaleOnAxis();
+    }
+    expect(scale, greaterThan(2));
+    await tester.pump(const Duration(milliseconds: 200));
+    await expectLater(
+      find.byType(_FarmLifeScene),
+      matchesGoldenFile('goldens/farm-life-zoomed-crop-360-vi.png'),
+    );
+  });
+
+  testWidgets('four low-poly animal portraits remain legible at 44dp', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 260);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      _localizedApp(const _AnimalPortraitShowcase(), reducedMotion: false),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(find.byType(AnimalCategoryCard), findsNWidgets(4));
+    for (final portrait in find.byType(AnimalPortrait).evaluate()) {
+      expect(
+        tester.getSize(find.byWidget(portrait.widget)),
+        const Size(44, 44),
+      );
+    }
+    await expectLater(
+      find.byType(_AnimalPortraitShowcase),
+      matchesGoldenFile('goldens/farm-life-animal-portraits-360-vi.png'),
     );
   });
 
@@ -225,6 +399,130 @@ class _LivestockApp extends StatelessWidget {
     locale: const Locale('vi'),
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(disableAnimations: true),
+      child: child ?? const SizedBox.shrink(),
+    ),
     home: const LivestockScreen(),
+  );
+}
+
+const _farmLifeZones = <DemoZone>[
+  DemoZone(
+    id: 'zone-rau-an-la',
+    farmId: 'farm-1',
+    name: 'Rau ăn lá',
+    kind: DemoZoneKind.crop,
+    x: 0.24,
+    y: 0.42,
+  ),
+  DemoZone(
+    id: 'zone-ca-chua',
+    farmId: 'farm-1',
+    name: 'Cà chua giàn',
+    kind: DemoZoneKind.crop,
+    x: 0.58,
+    y: 0.34,
+  ),
+  DemoZone(
+    id: 'zone-chuong-ga',
+    farmId: 'farm-1',
+    name: 'Chuồng gà',
+    kind: DemoZoneKind.livestock,
+    x: 0.78,
+    y: 0.62,
+  ),
+  DemoZone(
+    id: 'zone-bon-nuoc',
+    farmId: 'farm-1',
+    name: 'Bồn nước',
+    kind: DemoZoneKind.water,
+    x: 0.34,
+    y: 0.7,
+  ),
+  DemoZone(
+    id: 'zone-ruong-ngo',
+    farmId: 'farm-1',
+    name: 'Ruộng ngô',
+    kind: DemoZoneKind.crop,
+    x: 0.3,
+    y: 0.7,
+  ),
+  DemoZone(
+    id: 'zone-kho',
+    farmId: 'farm-1',
+    name: 'Kho nông cụ',
+    kind: DemoZoneKind.storage,
+    x: 0.7,
+    y: 0.9,
+  ),
+  DemoZone(
+    id: 'zone-nha-xuong',
+    farmId: 'farm-1',
+    name: 'Nhà xưởng',
+    kind: DemoZoneKind.house,
+    x: 0.9,
+    y: 0.9,
+  ),
+];
+
+class _FarmLifeScene extends StatefulWidget {
+  const _FarmLifeScene();
+
+  @override
+  State<_FarmLifeScene> createState() => _FarmLifeSceneState();
+}
+
+class _FarmLifeSceneState extends State<_FarmLifeScene> {
+  String? _selectedZoneId;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Column(
+      children: [
+        ZoneChipStrip(
+          zones: _farmLifeZones,
+          selectedZoneId: _selectedZoneId,
+          onSelect: (id) => setState(() => _selectedZoneId = id),
+        ),
+        Expanded(
+          child: ZoneScene(
+            zones: _farmLifeZones,
+            selectedZoneId: _selectedZoneId,
+            onSelect: (id) => setState(() => _selectedZoneId = id),
+            onOpenDetail: (_) {},
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _AnimalPortraitShowcase extends StatelessWidget {
+  const _AnimalPortraitShowcase();
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: SizedBox(
+        width: 208,
+        child: FarmAmbientLoop(
+          builder: (context, phase) => Wrap(
+            spacing: FarmSpacing.sm,
+            runSpacing: FarmSpacing.sm,
+            children: [
+              for (final category in DemoAnimalCategory.values)
+                AnimalCategoryCard(
+                  category: category,
+                  count: 12,
+                  selected: false,
+                  onSelected: (_) {},
+                  phase: phase,
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
   );
 }

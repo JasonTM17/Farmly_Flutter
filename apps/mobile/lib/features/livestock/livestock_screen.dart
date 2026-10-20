@@ -14,19 +14,32 @@ import '../../ui/pickers.dart';
 import '../../ui/screen_states.dart';
 import '../demo/demo_models.dart';
 import '../demo/demo_providers.dart';
+import 'live_livestock.dart';
+import 'live_livestock_screen.dart';
 
 /// Livestock overview: herd-grouped list with batch-vs-tracked semantics —
 /// tracked herds show per-animal cards, batch herds a single quantity card;
 /// headcounts never double count and sold/deceased records stay visible but
 /// excluded (D-05). No clinical/health metric is fabricated (spec 02 §5).
-class LivestockScreen extends ConsumerStatefulWidget {
+class LivestockScreen extends ConsumerWidget {
   const LivestockScreen({super.key});
 
   @override
-  ConsumerState<LivestockScreen> createState() => _LivestockScreenState();
+  Widget build(BuildContext context, WidgetRef ref) =>
+      ref.watch(farmlyLivestockDemoPreviewProvider)
+      ? const _DemoLivestockScreen()
+      : const FarmlyLiveLivestockScreen();
 }
 
-class _LivestockScreenState extends ConsumerState<LivestockScreen> {
+class _DemoLivestockScreen extends ConsumerStatefulWidget {
+  const _DemoLivestockScreen();
+
+  @override
+  ConsumerState<_DemoLivestockScreen> createState() =>
+      _DemoLivestockScreenState();
+}
+
+class _DemoLivestockScreenState extends ConsumerState<_DemoLivestockScreen> {
   DemoAnimalCategory? _categoryFilter;
 
   @override
@@ -44,9 +57,9 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
 
     final visibleHerds = _categoryFilter == null
         ? herds
-        : herds.where((herd) => herd.category == _categoryFilter).toList(
-            growable: false,
-          );
+        : herds
+              .where((herd) => herd.category == _categoryFilter)
+              .toList(growable: false);
     final totalHeadcount = farmLivestockHeadcount(state, farm?.id);
     final trackedHeadcount = herds
         .where((herd) => herd.mode == DemoHerdMode.tracked)
@@ -54,7 +67,10 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
     final batchHeadcount = totalHeadcount - trackedHeadcount;
 
     final feedingDone = feeding.fold<int>(0, (sum, entry) => sum + entry.done);
-    final feedingTotal = feeding.fold<int>(0, (sum, entry) => sum + entry.total);
+    final feedingTotal = feeding.fold<int>(
+      0,
+      (sum, entry) => sum + entry.total,
+    );
     final l10n = AppLocalizations.of(context);
 
     return Scaffold(
@@ -67,9 +83,9 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
             if (farm != null)
               Text(
                 farm.name,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: tokens.textSecondary,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: tokens.textSecondary),
               ),
           ],
         ),
@@ -142,7 +158,10 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                           ),
                           const SizedBox(height: FarmSpacing.xs),
                           Text(
-                            l10n.herdSplitLine(trackedHeadcount, batchHeadcount),
+                            l10n.herdSplitLine(
+                              trackedHeadcount,
+                              batchHeadcount,
+                            ),
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: tokens.textSecondary),
                             softWrap: true,
@@ -167,9 +186,7 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                               Expanded(
                                 child: Text(
                                   l10n.feedingSectionTitle,
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.titleSmall,
+                                  style: Theme.of(context).textTheme.titleSmall,
                                 ),
                               ),
                               Container(
@@ -188,12 +205,11 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                                     feedingDone,
                                     feedingTotal,
                                   ),
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.labelSmall?.copyWith(
-                                    color: tokens.brandAction,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        color: tokens.brandAction,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                 ),
                               ),
                             ],
@@ -203,11 +219,8 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                           const SizedBox(height: FarmSpacing.sm),
                           Text(
                             l10n.feedingFarmDayNote,
-                            style: Theme.of(
-                              context,
-                            ).textTheme.labelSmall?.copyWith(
-                              color: tokens.textSecondary,
-                            ),
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: tokens.textSecondary),
                           ),
                         ],
                       ),
@@ -227,48 +240,51 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                     const SizedBox(height: FarmSpacing.sm),
                     SizedBox(
                       height: 116,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          FarmEntrance(
-                            child: Semantics(
-                              button: true,
-                              selected: _categoryFilter == null,
-                              label: l10n.allGroupsSemantics(totalHeadcount),
-                              child: SizedBox(
-                                width: 96,
-                                child: _AllCategoryCard(
-                                  count: totalHeadcount,
-                                  selected: _categoryFilter == null,
-                                  onTap: () =>
-                                      setState(() => _categoryFilter = null),
-                                ),
-                              ),
-                            ),
-                          ),
-                          for (final (ci, category)
-                              in DemoAnimalCategory.values.indexed)
+                      child: FarmAmbientLoop(
+                        builder: (context, phase) => ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: [
                             FarmEntrance(
-                              delay: Duration(milliseconds: 60 * (ci + 1)),
-                              child: Padding(
-                                padding: const EdgeInsets.only(
-                                  left: FarmSpacing.sm,
-                                ),
-                                child: AnimalCategoryCard(
-                                category: category,
-                                count: categoryLivestockHeadcount(
-                                  state,
-                                  farm?.id,
-                                  category,
-                                ),
-                                  selected: _categoryFilter == category,
-                                  onSelected: (_) => setState(
-                                    () => _categoryFilter = category,
+                              child: Semantics(
+                                button: true,
+                                selected: _categoryFilter == null,
+                                label: l10n.allGroupsSemantics(totalHeadcount),
+                                child: SizedBox(
+                                  width: 96,
+                                  child: _AllCategoryCard(
+                                    count: totalHeadcount,
+                                    selected: _categoryFilter == null,
+                                    onTap: () =>
+                                        setState(() => _categoryFilter = null),
                                   ),
                                 ),
                               ),
                             ),
-                        ],
+                            for (final (ci, category)
+                                in DemoAnimalCategory.values.indexed)
+                              FarmEntrance(
+                                delay: Duration(milliseconds: 60 * (ci + 1)),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                    left: FarmSpacing.sm,
+                                  ),
+                                  child: AnimalCategoryCard(
+                                    category: category,
+                                    count: categoryLivestockHeadcount(
+                                      state,
+                                      farm?.id,
+                                      category,
+                                    ),
+                                    selected: _categoryFilter == category,
+                                    onSelected: (_) => setState(
+                                      () => _categoryFilter = category,
+                                    ),
+                                    phase: phase,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: FarmSpacing.md),
@@ -300,14 +316,16 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                     else
                       for (final (hi, herd) in visibleHerds.indexed)
                         Padding(
-                          padding: const EdgeInsets.only(bottom: FarmSpacing.md),
+                          padding: const EdgeInsets.only(
+                            bottom: FarmSpacing.md,
+                          ),
                           child: FarmEntrance(
                             delay: Duration(milliseconds: 80 * hi),
                             child: _HerdSection(
-                            herd: herd,
-                            animals: animalsOfHerd(state, herd.id),
-                            headcount: herdHeadcount(state, herd),
-                            records: productionOfHerd(state, herd.id),
+                              herd: herd,
+                              animals: animalsOfHerd(state, herd.id),
+                              headcount: herdHeadcount(state, herd),
+                              records: productionOfHerd(state, herd.id),
                               readOnly:
                                   screenState == DemoLoadState.permissionDenied,
                             ),
@@ -316,8 +334,8 @@ class _LivestockScreenState extends ConsumerState<LivestockScreen> {
                   ],
                 ),
               },
-          ),
-        ],
+            ),
+          ],
         ),
       ),
     );
@@ -405,10 +423,7 @@ class _HerdSection extends ConsumerWidget {
   final List<DemoProductionRecord> records;
   final bool readOnly;
 
-  Future<void> _recordProduction(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
+  Future<void> _recordProduction(BuildContext context, WidgetRef ref) async {
     final saved = await showDialog<bool>(
       context: context,
       builder: (_) => _ProductionDialog(herd: herd),
@@ -417,10 +432,7 @@ class _HerdSection extends ConsumerWidget {
     showFarmToast(context, AppLocalizations.of(context).savedLocallyToast);
   }
 
-  Future<void> _recordMovement(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
+  Future<void> _recordMovement(BuildContext context, WidgetRef ref) async {
     final saved = await showDialog<bool>(
       context: context,
       builder: (_) => _BatchMovementDialog(herd: herd),
@@ -451,9 +463,9 @@ class _HerdSection extends ConsumerWidget {
               ),
               Text(
                 l10n.headcountSuffix(headcount),
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: tokens.brandAction,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(color: tokens.brandAction),
               ),
             ],
           ),
@@ -504,7 +516,9 @@ class _HerdSection extends ConsumerWidget {
           runSpacing: FarmSpacing.sm,
           children: [
             OutlinedButton.icon(
-              onPressed: readOnly ? null : () => _recordProduction(context, ref),
+              onPressed: readOnly
+                  ? null
+                  : () => _recordProduction(context, ref),
               icon: const Icon(Icons.add_chart_outlined),
               label: Text(l10n.recordProduction),
             ),
@@ -523,12 +537,13 @@ class _HerdSection extends ConsumerWidget {
   }
 }
 
-String _productLabel(AppLocalizations l10n, String product) => switch (product) {
-  'milk' => l10n.productMilk,
-  'eggs' => l10n.productEggs,
-  'weight' => l10n.productWeight,
-  _ => product,
-};
+String _productLabel(AppLocalizations l10n, String product) =>
+    switch (product) {
+      'milk' => l10n.productMilk,
+      'eggs' => l10n.productEggs,
+      'weight' => l10n.productWeight,
+      _ => product,
+    };
 
 /// Production-record dialog (phase 06 step 3): product + exact decimal
 /// quantity in the product's unit. Writes land local-pending via
@@ -758,15 +773,12 @@ class _AllCategoryCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: FarmSpacing.sm),
-              Text(
-                '$count',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
+              Text('$count', style: Theme.of(context).textTheme.titleMedium),
               Text(
                 AppLocalizations.of(context).allGroupsLabel,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: tokens.textSecondary,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: tokens.textSecondary),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),

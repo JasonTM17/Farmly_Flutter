@@ -24,9 +24,22 @@ field, with or without connectivity.
 
 ## Highlights
 
-- **Interactive farm map** — board-style extruded 3D plots with per-crop
-  interiors (trellised tomatoes, corn rows, lettuce beds, ponds, pastures,
-  barns), ambient animation, and a smooth camera dive into any plot.
+- **Interactive farm map** — board-style extruded 3D plots with animated,
+  clay-style 3D trees, crops and species-aware farm animals. Soft directional
+  lighting, rounded foliage, wool and warm animal portraits share one visual
+  language. Houses, storage sheds and barns use solid roof/wall planes, inset
+  openings and contact shadows; shared cards and controls use restrained depth.
+  Trellised tomatoes, corn rows, lettuce beds, ponds and barns retain
+  their own illustrated detail;
+  rooted grass sways in the wind while pasture animals take short, staggered
+  walks with alternating steps and turns inside their own lanes. This motion
+  shares the existing battery-conscious scene loop,
+  with reduced-motion still poses and a smooth camera dive into any plot.
+  Tap the meadow to watch walking cows up close without changing livestock records;
+  houses and tool sheds open their own details with one tap, and fish swim in
+  the water scene. Roof shingles, porches, tools and yard furniture add depth;
+  wind pennants, roof ventilation, chimney wisps, drifting water lilies and
+  butterflies give each zone its own ambient detail.
 - **Offline-first writes** — every operation is captured in an immutable
   encrypted outbox on-device and synced when connectivity returns, with
   dependency-aware ordering and conflict recovery.
@@ -139,7 +152,10 @@ role passwords set in `infra/.env`.
 
 The API rejects `MIGRATION_DATABASE_URL` at runtime — migration credentials
 live only in the migration process. See `apps/api` scripts for the ordered
-migration chain (`migrate:auth` → `migrate:tenant` → `migrate:rls` → …).
+migration chain (`migrate:auth` → `migrate:tenant` → `migrate:rls` → …),
+including `migrate:farm-iana-timezone-guard` for durable server-side validation
+of farm timezone writes and `migrate:task-schedule-rules` for weekly task-day
+requirements and unmaterialized occurrence schedule enforcement.
 
 ### Mobile
 
@@ -157,6 +173,11 @@ flutter run --flavor development -t lib/main_explorer_preview.dart
 # Full app (needs a running API):
 flutter run --flavor development -t lib/main.dart
 ```
+
+The visual preview uses in-memory credentials and local API/auth adapters. It
+blocks the persistent sync engine and exposes existing authentication screens
+for visual inspection only. Preview navigation is not evidence of live sign-in,
+backend sync or AI provider execution. No app-data reset is needed to run it.
 
 `lib/generated/` and `lib/l10n/generated/` are generated output and are not
 committed — recreate them with the commands above. `flutter gen-l10n` also

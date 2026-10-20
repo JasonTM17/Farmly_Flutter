@@ -7,6 +7,11 @@ import '../core/theme/farmly_spacing.dart';
 import '../core/theme/farmly_theme_extension.dart';
 import '../features/demo/demo_models.dart';
 import '../l10n/generated/app_localizations.dart';
+import 'farm_life_painter.dart';
+import 'clay_shapes.dart';
+import 'farm_structure_painter.dart';
+import 'farm_scene_accents.dart';
+import 'farm_scene_details.dart';
 import 'motion.dart';
 
 IconData _zoneIcon(DemoZoneKind kind, {required bool filled}) {
@@ -112,6 +117,7 @@ class ZoneScene extends StatefulWidget {
     required this.onSelect,
     required this.onOpenDetail,
     this.onAdd,
+    this.onOpenAnimals,
     super.key,
   });
 
@@ -119,12 +125,12 @@ class ZoneScene extends StatefulWidget {
   final String? selectedZoneId;
   final ValueChanged<String> onSelect;
   final ValueChanged<DemoZone> onOpenDetail;
+  final VoidCallback? onOpenAnimals;
 
   /// Shows the floating "+" beside the reset control in the map's bottom
   /// right corner (reference has an add-zone affordance there). Null hides
-  /// the button. Zone details open from the zone panel / accessible list —
-  /// tiles select + focus on tap so a single tap never waits on the
-  /// double-tap window.
+  /// the button. Every plot opens its detail on the first tap; selection also
+  /// keeps the camera focused when the user returns to the map.
   final VoidCallback? onAdd;
 
   @override
@@ -228,6 +234,14 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
   Matrix4 _fit = Matrix4.identity();
 
   void _resetView() => _animateTo(_fit);
+
+  void _openMeadow() =>
+      showFarmMeadow(context, onOpenAnimals: widget.onOpenAnimals);
+
+  void _activateZone(DemoZone zone) {
+    widget.onSelect(zone.id);
+    widget.onOpenDetail(zone);
+  }
 
   /// Plot tiles are chunky rounded squares (~42% of map width) on a loose
   /// two-column grid — the reference map's board-game layout.
@@ -364,6 +378,19 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                           constraints.maxWidth,
                           constraints.maxHeight,
                         );
+                        final meadowHeight = _tileH(canvas) * 0.64;
+                        // Convert fixed screen-space control clearance back to
+                        // the fitted board; omit decor if that row cannot fit.
+                        final meadowTop = math.min(
+                          34 + _tileH(canvas) * 1.38 * (_rows - 1),
+                          (vp.maxHeight - FarmSpacing.minTouchTarget - 16) /
+                                  _fit.entry(0, 0) -
+                              meadowHeight,
+                        );
+                        final previousRowBottom =
+                            34 +
+                            _tileH(canvas) * 1.38 * (_rows - 2) +
+                            _tileH(canvas);
                         return FarmAmbientLoop(
                           builder: (context, phase) => Stack(
                             clipBehavior: Clip.none,
@@ -373,6 +400,57 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                                   painter: _IsoGroundPainter(phase: phase),
                                 ),
                               ),
+                              // The meadow is inspectable scenery in the vacant
+                              // final right cell, separate from domain zones.
+                              if (_ordered.length >= 3 &&
+                                  _ordered.length.isOdd &&
+                                  meadowTop >= previousRowBottom)
+                                Positioned(
+                                  left: canvas.width * 0.52,
+                                  top: meadowTop,
+                                  width: _tileW(canvas) * 0.93,
+                                  height: meadowHeight,
+                                  child: Semantics(
+                                    button: true,
+                                    excludeSemantics: true,
+                                    onTap: _openMeadow,
+                                    label: l10n.localeName.startsWith('vi')
+                                        ? 'Đồng cỏ, chạm để xem bò'
+                                        : 'Meadow, tap to watch cows',
+                                    child: GestureDetector(
+                                      key: const ValueKey(
+                                        'farm-meadow-hotspot',
+                                      ),
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: _openMeadow,
+                                      child: Stack(
+                                        children: [
+                                          Positioned.fill(
+                                            child: CustomPaint(
+                                              painter: FarmMeadowPainter(
+                                                phase: phase,
+                                              ),
+                                            ),
+                                          ),
+                                          Positioned(
+                                            left: 8,
+                                            top: 0,
+                                            child: Text(
+                                              l10n.localeName.startsWith('vi')
+                                                  ? 'Đồng cỏ'
+                                                  : 'Meadow',
+                                              style: const TextStyle(
+                                                fontSize: 9,
+                                                color: FarmlyColors.textPrimary,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               // Painter order: iso rows back-to-front so nearer
                               // tiles overdraw further ones correctly.
                               for (final (tileIndex, zone) in _ordered.indexed)
@@ -396,13 +474,14 @@ class _ZoneSceneState extends State<ZoneScene> with TickerProviderStateMixin {
                                       selected: selected,
                                       label: l10n.zoneTileSemantics(zone.name),
                                       excludeSemantics: true,
+                                      onTap: () => _activateZone(zone),
                                       child: GestureDetector(
                                         behavior: HitTestBehavior.translucent,
                                         // Selection change drives the
                                         // camera via didUpdateWidget —
                                         // one flight path for tile tap,
                                         // chip strip, and accessible list.
-                                        onTap: () => widget.onSelect(zone.id),
+                                        onTap: () => _activateZone(zone),
                                         // Selected plot lifts ~6px with a soft
                                         // overshoot — the little "pop" that makes
                                         // the reference's taps feel physical.
@@ -608,22 +687,8 @@ class _IsoGroundPainter extends CustomPainter {
     }
     canvas.drawPath(path, dirt);
 
-    // Decorative edge trees — canopy spheres with a trunk, leaning a couple
-    // of px on the ambient phase like the crop sway.
-    final trunk = Paint()
-      ..color = Color.lerp(
-        FarmlyColors.semanticWarning,
-        FarmlyColors.textPrimary,
-        0.45,
-      )!
-      ..strokeWidth = 2.4
-      ..strokeCap = StrokeCap.round;
-    final canopy = Paint()
-      ..color = Color.lerp(
-        FarmlyColors.brandAction,
-        FarmlyColors.brandSage,
-        0.3,
-      )!;
+    // Decorative edge trees use the same top-left light and faceted foliage
+    // as the plots; each crown sways slightly around its planted trunk.
     final spots = <Offset>[
       Offset(size.width * 0.06, size.height * 0.12),
       Offset(size.width * 0.94, size.height * 0.24),
@@ -631,25 +696,27 @@ class _IsoGroundPainter extends CustomPainter {
       Offset(size.width * 0.95, size.height * 0.62),
       Offset(size.width * 0.07, size.height * 0.88),
     ];
-    final treeShade = Paint()
-      ..color = FarmlyColors.textPrimary.withValues(alpha: 0.10);
     for (var i = 0; i < spots.length; i++) {
-      final p0 = spots[i];
-      final sway = math.sin(phase * 2 * math.pi + i * 1.3) * 1.4;
-      canvas.drawOval(
-        Rect.fromCenter(center: p0 + const Offset(0, 8), width: 16, height: 5),
-        treeShade,
+      FarmLifePainter.drawTree(
+        canvas,
+        ground: spots[i],
+        scale: i.isEven ? 0.94 : 0.82,
+        phase: phase,
+        seed: i,
       );
-      canvas.drawLine(
-        Offset(p0.dx, p0.dy + 7),
-        Offset(p0.dx, p0.dy - 2),
-        trunk,
-      );
-      canvas.drawCircle(Offset(p0.dx + sway, p0.dy - 8), 8.5, canopy);
-      canvas.drawCircle(
-        Offset(p0.dx + sway - 2.5, p0.dy - 11),
-        3.4,
-        Paint()..color = FarmlyColors.surface.withValues(alpha: 0.4),
+    }
+
+    // Rooted tufts animate with the same wind as the edge trees.
+    for (var i = 0; i < 10; i++) {
+      FarmLifePainter.drawGrassTuft(
+        canvas,
+        ground: Offset(
+          size.width * (i.isEven ? 0.09 : 0.91),
+          size.height * (0.18 + (i ~/ 2) * 0.16),
+        ),
+        scale: 0.8,
+        phase: phase,
+        seed: i,
       );
     }
 
@@ -794,7 +861,7 @@ class IsoZoneTilePainter extends CustomPainter {
   /// field vs leafy beds) so each plot matches what it actually grows.
   final String name;
 
-  /// Ambient phase 0..1 — pond ripples expand, pasture animals bob.
+  /// Ambient phase 0..1 — ripples, rooted grass and walking pasture animals.
   final double phase;
 
   @override
@@ -825,7 +892,20 @@ class IsoZoneTilePainter extends CustomPainter {
       skirt,
       Paint()..color = Color.lerp(base, FarmlyColors.textPrimary, 0.42)!,
     );
-    canvas.drawRRect(face, Paint()..color = base);
+    canvas.drawRRect(
+      face,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            ClayShapes.light(base, 0.18),
+            base,
+            ClayShapes.dark(base, 0.06),
+          ],
+          stops: const [0, 0.55, 1],
+        ).createShader(face.outerRect),
+    );
 
     canvas.save();
     canvas.clipRRect(face);
@@ -879,22 +959,6 @@ class IsoZoneTilePainter extends CustomPainter {
     )!,
   };
 
-  /// A little sphere: shaded base circle plus a top-left highlight so plants
-  /// and animals read as 3D blobs rather than flat dots.
-  void _sphere(Canvas canvas, Offset c, double r, Color color) {
-    canvas.drawCircle(
-      c + Offset(r * 0.22, r * 0.3),
-      r,
-      Paint()..color = Color.lerp(color, FarmlyColors.textPrimary, 0.22)!,
-    );
-    canvas.drawCircle(c, r, Paint()..color = color);
-    canvas.drawCircle(
-      c + Offset(-r * 0.3, -r * 0.34),
-      r * 0.36,
-      Paint()..color = FarmlyColors.surface.withValues(alpha: 0.55),
-    );
-  }
-
   void _paintInterior(Canvas canvas, double w, double h) {
     switch (kind) {
       case DemoZoneKind.crop:
@@ -908,77 +972,53 @@ class IsoZoneTilePainter extends CustomPainter {
         } else {
           _paintLeafyField(canvas, w, h);
         }
+        FarmSceneAccents.butterfly(
+          canvas,
+          bounds: Rect.fromLTWH(w * 0.1, h * 0.15, w * 0.8, h * 0.55),
+          phase: phase,
+          golden: lower.contains('ngô') || lower.contains('corn'),
+        );
       case DemoZoneKind.livestock:
-        // Pasture with fence + 3D-ish grazing blobs that bob on the phase.
-        final fence = Paint()
-          ..color = Color.lerp(
-            FarmlyColors.semanticWarning,
-            FarmlyColors.surface,
-            0.22,
-          )!
-          ..strokeWidth = 2.6
-          ..strokeCap = StrokeCap.round;
-        canvas.drawLine(
-          Offset(w * 0.06, h * 0.68),
-          Offset(w * 0.94, h * 0.68),
-          fence,
+        // Buildings and actors are decorative, never operational quantities.
+        FarmStructurePainter.building(
+          canvas,
+          bounds: Rect.fromLTWH(w * 0.06, h * 0.15, w * 0.28, h * 0.29),
+          kind: FarmStructureKind.barn,
         );
-        canvas.drawLine(
-          Offset(w * 0.06, h * 0.8),
-          Offset(w * 0.94, h * 0.8),
-          fence,
+        FarmSceneAccents.buildingLife(
+          canvas,
+          bounds: Rect.fromLTWH(w * 0.06, h * 0.15, w * 0.28, h * 0.29),
+          kind: FarmStructureKind.barn,
+          phase: phase,
         );
-        for (var i = 0; i < 4; i++) {
-          final x = w * (0.15 + i * 0.235);
-          canvas.drawLine(Offset(x, h * 0.62), Offset(x, h * 0.88), fence);
-        }
-        // Water trough in the corner.
-        final trough = RRect.fromRectAndRadius(
-          Rect.fromLTWH(w * 0.68, h * 0.14, w * 0.2, h * 0.12),
-          const Radius.circular(4),
+        FarmStructurePainter.fence(
+          canvas,
+          bounds: Rect.fromLTWH(w * 0.06, h * 0.62, w * 0.88, h * 0.26),
         );
-        canvas.drawRRect(
-          trough,
-          Paint()..color = FarmlyColors.illustrationWater,
+        FarmStructurePainter.trough(
+          canvas,
+          bounds: Rect.fromLTWH(w * 0.68, h * 0.14, w * 0.2, h * 0.12),
         );
-        canvas.drawRRect(
-          trough,
-          Paint()
-            ..color = FarmlyColors.textSecondary
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.4,
-        );
-        // Five scattered animals, alternating sizes — the reference pasture
-        // is busy, not a tidy row.
-        const spots = <double>[0.16, 0.34, 0.5, 0.68, 0.84];
-        for (var i = 0; i < spots.length; i++) {
-          final bob =
-              math.sin(phase * 2 * math.pi + i * 2.1) * (i.isEven ? 2.4 : 0);
-          // Graze wander: each animal strolls a few px back and forth.
-          final wander = math.sin(phase * 2 * math.pi + i * 1.7) * w * 0.03;
-          final small = i.isOdd;
-          final p = Offset(
-            w * spots[i] + wander,
-            h * (i.isEven ? 0.3 : 0.46) + bob,
-          );
-          final bw = small ? 17.0 : 24.0;
-          final bh = small ? 10.0 : 14.0;
-          canvas.drawOval(
-            Rect.fromCenter(center: p, width: bw, height: bh),
-            Paint()..color = FarmlyColors.surface,
-          );
-          canvas.drawOval(
-            Rect.fromCenter(center: p, width: bw, height: bh),
-            Paint()
-              ..color = FarmlyColors.textSecondary
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 1.3,
-          );
-          _sphere(
+        for (var i = 0; i < 7; i++) {
+          FarmLifePainter.drawGrassTuft(
             canvas,
-            p + Offset(bw * 0.46, -4),
-            small ? 4 : 5.2,
-            Color.lerp(FarmlyColors.surface, FarmlyColors.textSecondary, 0.12)!,
+            ground: Offset(w * (0.12 + i * 0.12), h * (i.isEven ? 0.4 : 0.65)),
+            scale: 0.72,
+            phase: phase,
+            seed: i,
+          );
+        }
+        // Lane-bound decorative walkers, never herd-count data.
+        const spots = <double>[0.16, 0.34, 0.5, 0.68, 0.84];
+        final form = FarmLifePainter.formForZoneName(name);
+        for (var i = 0; i < spots.length; i++) {
+          FarmLifePainter.drawPastureAnimal(
+            canvas,
+            ground: Offset(w * spots[i], h * (i.isEven ? 0.48 : 0.56)),
+            scale: i.isOdd ? 0.78 : 0.9,
+            phase: phase,
+            seed: i,
+            form: form,
           );
         }
       case DemoZoneKind.water:
@@ -994,12 +1034,6 @@ class IsoZoneTilePainter extends CustomPainter {
           width: w * 0.24,
           height: h * 0.26,
         );
-        final water = Paint()
-          ..color = Color.lerp(
-            FarmlyColors.illustrationWater,
-            FarmlyColors.textPrimary,
-            0.18,
-          )!;
         final waterEdge = Paint()
           ..color = Color.lerp(
             FarmlyColors.illustrationWater,
@@ -1008,9 +1042,14 @@ class IsoZoneTilePainter extends CustomPainter {
           )!;
         // Darker under-ellipse sells the cylinder wall of each pool.
         canvas.drawOval(tankRect.shift(const Offset(0, 5)), waterEdge);
-        canvas.drawOval(tankRect, water);
+        ClayShapes.oval(canvas, tankRect, FarmlyColors.illustrationWater);
         canvas.drawOval(pondRect.shift(const Offset(0, 3)), waterEdge);
-        canvas.drawOval(pondRect, water);
+        ClayShapes.oval(canvas, pondRect, FarmlyColors.illustrationWater);
+        FarmSceneAccents.pondFish(
+          canvas,
+          bounds: tankRect.deflate(w * 0.018),
+          phase: phase,
+        );
         for (var r = 0; r < 3; r++) {
           final cycle = (phase + r / 3) % 1.0;
           canvas.drawOval(
@@ -1027,9 +1066,18 @@ class IsoZoneTilePainter extends CustomPainter {
               ..strokeWidth = 2,
           );
         }
-        final lily = Paint()..color = FarmlyColors.brandAction;
-        canvas.drawCircle(Offset(w * 0.72, h * 0.57), 3.6, lily);
-        canvas.drawCircle(Offset(w * 0.81, h * 0.65), 3, lily);
+        FarmSceneAccents.lily(
+          canvas,
+          center: Offset(w * 0.72, h * 0.57),
+          phase: phase,
+          seed: 0,
+        );
+        FarmSceneAccents.lily(
+          canvas,
+          center: Offset(w * 0.81, h * 0.65),
+          phase: phase,
+          seed: 2,
+        );
         // Rotating sheen sweeping the tank surface.
         final sheen = Paint()
           ..color = FarmlyColors.surface.withValues(alpha: 0.55)
@@ -1055,7 +1103,7 @@ class IsoZoneTilePainter extends CustomPainter {
     }
   }
 
-  /// Two garden beds: big lettuce spheres up top, dense seedlings below —
+  /// Two garden beds: layered lettuce plants up top and raised seedlings below —
   /// the reference vegetable plot has exactly this split.
   void _paintLeafyField(Canvas canvas, double w, double h) {
     final furrow = Paint()
@@ -1066,55 +1114,73 @@ class IsoZoneTilePainter extends CustomPainter {
       )!
       ..strokeCap = StrokeCap.round;
     for (var r = 0; r < 2; r++) {
-      final y = h * (0.18 + r * 0.17);
+      final y = h * (0.23 + r * 0.21);
       furrow.strokeWidth = 3;
       canvas.drawLine(Offset(w * 0.12, y + 7), Offset(w * 0.88, y + 7), furrow);
       for (var i = 0; i < 5; i++) {
-        final sway = math.sin(phase * 2 * math.pi + i * 0.9 + r) * 1.8;
-        final px = w * (0.16 + i * 0.17) + sway;
-        _sphere(canvas, Offset(px, y), 6.4, FarmlyColors.brandAction);
+        final px = w * (0.16 + i * 0.17);
+        FarmSceneAccents.lettuce(
+          canvas,
+          ground: Offset(px, y + 3.5),
+          scale: 1.55 * w / 150,
+          phase: phase,
+          seed: r * 7 + i,
+        );
       }
     }
-    canvas.drawRect(
-      Rect.fromLTWH(w * 0.1, h * 0.54, w * 0.8, h * 0.36),
-      Paint()
-        ..color = Color.lerp(
-          FarmlyColors.semanticWarning,
-          FarmlyColors.textPrimary,
-          0.18,
-        )!,
-    );
+    final soil = Color.lerp(
+      FarmlyColors.semanticWarning,
+      FarmlyColors.textPrimary,
+      0.28,
+    )!;
+    for (var row = 0; row < 2; row++) {
+      final bed = Rect.fromLTWH(
+        w * 0.09,
+        h * (0.57 + row * 0.16),
+        w * 0.82,
+        h * 0.14,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          bed.shift(const Offset(0, 2)),
+          const Radius.circular(4),
+        ),
+        Paint()..color = ClayShapes.dark(soil, 0.3),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(bed, const Radius.circular(4)),
+        Paint()
+          ..shader = LinearGradient(
+            colors: [ClayShapes.light(soil, 0.2), soil],
+          ).createShader(bed),
+      );
+    }
     // Grass tufts poking through the topsoil between rows.
-    final tuft = Paint()
-      ..color = FarmlyColors.brandAction.withValues(alpha: 0.55)
-      ..strokeWidth = 1.6
-      ..strokeCap = StrokeCap.round;
     for (var i = 0; i < 6; i++) {
       final px = w * (0.14 + i * 0.145);
       final py = h * 0.46 + (i.isEven ? 0 : 4);
-      canvas.drawLine(Offset(px, py + 5), Offset(px - 2, py - 3), tuft);
-      canvas.drawLine(Offset(px, py + 5), Offset(px, py - 4), tuft);
-      canvas.drawLine(Offset(px, py + 5), Offset(px + 2, py - 3), tuft);
+      FarmLifePainter.drawGrassTuft(
+        canvas,
+        ground: Offset(px, py + 5),
+        scale: 0.8,
+        phase: phase,
+        seed: i,
+      );
     }
-    final seedling = Paint()
-      ..color = Color.lerp(
-        FarmlyColors.brandAction,
-        FarmlyColors.semanticWarning,
-        0.25,
-      )!;
-    for (var r = 0; r < 3; r++) {
-      for (var i = 0; i < 8; i++) {
-        final sway = math.sin(phase * 2 * math.pi + i * 0.7 + r * 0.5) * 1.2;
-        canvas.drawCircle(
-          Offset(w * (0.14 + i * 0.103) + sway, h * (0.61 + r * 0.11)),
-          2.6,
-          seedling,
+    for (var r = 0; r < 2; r++) {
+      for (var i = 0; i < 6; i++) {
+        FarmSceneAccents.lettuce(
+          canvas,
+          ground: Offset(w * (0.15 + i * 0.14), h * (0.66 + r * 0.16) + 1.5),
+          scale: 0.84 * w / 150,
+          phase: phase,
+          seed: r * 11 + i,
         );
       }
     }
   }
 
-  /// Trellised tomato field: vertical stakes, green bushes, red fruit dots.
+  /// Trellised tomato field: vertical stakes, faceted leaves and fruit.
   void _paintTomatoField(Canvas canvas, double w, double h) {
     final stake = Paint()
       ..color = Color.lerp(
@@ -1124,125 +1190,66 @@ class IsoZoneTilePainter extends CustomPainter {
       )!
       ..strokeWidth = 2
       ..strokeCap = StrokeCap.round;
-    final fruit = Paint()..color = FarmlyColors.semanticError;
     for (var r = 0; r < 3; r++) {
-      final y = h * (0.22 + r * 0.26);
+      final y = h * (0.26 + r * 0.27);
       canvas.drawLine(Offset(w * 0.1, y), Offset(w * 0.9, y), stake);
       for (var i = 0; i < 5; i++) {
-        final sway = math.sin(phase * 2 * math.pi + i * 0.8 + r * 0.4) * 1.6;
         final px = w * (0.14 + i * 0.18);
         canvas.drawLine(Offset(px, y - 8), Offset(px, y + 8), stake);
-        _sphere(
+        FarmSceneAccents.tomato(
           canvas,
-          Offset(px + sway, y - 4),
-          5.4,
-          FarmlyColors.brandAction,
+          ground: Offset(px, y + 7),
+          scale: 1.35 * w / 150,
+          phase: phase,
+          seed: r * 7 + i,
         );
-        canvas.drawCircle(Offset(px + sway + 3.4, y - 2), 1.9, fruit);
       }
     }
   }
 
-  /// Corn field: tall green stalk strokes with golden kernel dots, like the
-  /// reference's dense corn tile.
+  /// Corn field: tall faceted stalks with shaded golden ears.
   void _paintCornField(Canvas canvas, double w, double h) {
-    final stalk = Paint()
-      ..color = FarmlyColors.brandAction
-      ..strokeWidth = 2.2
-      ..strokeCap = StrokeCap.round;
-    final kernel = Paint()..color = FarmlyColors.semanticWarning;
-    for (var r = 0; r < 4; r++) {
-      final t = r / 3;
-      final y = h * (0.2 + r * 0.2);
-      for (var i = 0; i < 7; i++) {
-        final px = w * (0.12 + i * 0.127);
-        // Stalk sways; kernel dots ride the lean.
-        final sway = math.sin(phase * 2 * math.pi + i * 0.75 + r * 0.55) * 2.6;
-        canvas.drawLine(
-          Offset(px, y + 6),
-          Offset(px + sway, y - 8 - t * 2),
-          stalk,
+    for (var r = 0; r < 3; r++) {
+      final t = r / 2;
+      final y = h * (0.28 + r * 0.26);
+      for (var i = 0; i < 5; i++) {
+        final px = w * (0.15 + i * 0.175);
+        // The leaves, cob and stalk lean together on the ambient phase.
+        FarmLifePainter.drawCornStalk(
+          canvas,
+          ground: Offset(px, y + 7),
+          scale: (1.3 + t * 0.08) * w / 150,
+          phase: phase,
+          seed: r * 13 + i,
         );
-        canvas.drawCircle(Offset(px + sway - 2.4, y - 2), 1.8, kernel);
-        canvas.drawCircle(Offset(px + sway + 2.4, y - 5), 1.8, kernel);
       }
     }
   }
 
   void _paintBuilding(Canvas canvas, double w, double h, Color wall) {
-    final cx = w / 2;
-    final cy = h * 0.52;
-    final isHouse = kind == DemoZoneKind.house;
-    final darkWall = Color.lerp(wall, FarmlyColors.textPrimary, 0.35)!;
-    // Chimney sits behind the roof on houses.
-    if (isHouse) {
-      canvas.drawRect(
-        Rect.fromLTWH(cx + w * 0.08, cy - h * 0.3, w * 0.045, h * 0.14),
-        Paint()..color = darkWall,
-      );
-    }
-    // Walls with a darker right face = a 3D block, not a flat rect.
-    canvas.drawRect(
-      Rect.fromLTWH(cx - w * 0.16, cy - h * 0.04, w * 0.32, h * 0.32),
-      Paint()..color = wall,
+    FarmStructurePainter.building(
+      canvas,
+      bounds: Rect.fromLTWH(w * 0.19, h * 0.12, w * 0.62, h * 0.76),
+      kind: kind == DemoZoneKind.house
+          ? FarmStructureKind.house
+          : FarmStructureKind.storage,
+      detailed: true,
     );
-    canvas.drawRect(
-      Rect.fromLTWH(cx + w * 0.08, cy - h * 0.04, w * 0.08, h * 0.32),
-      Paint()..color = darkWall,
+    FarmSceneAccents.buildingLife(
+      canvas,
+      bounds: Rect.fromLTWH(w * 0.19, h * 0.12, w * 0.62, h * 0.76),
+      kind: kind == DemoZoneKind.house
+          ? FarmStructureKind.house
+          : FarmStructureKind.storage,
+      phase: phase,
     );
-    // Gabled roof: overhangs the walls both sides + a visible ridge stroke.
-    final roofColor = isHouse
-        ? FarmlyColors.semanticError.withValues(alpha: 0.85)
-        : FarmlyColors.surface;
-    final roof = Path()
-      ..moveTo(cx - w * 0.21, cy - h * 0.02)
-      ..lineTo(cx, cy - h * 0.28)
-      ..lineTo(cx + w * 0.21, cy - h * 0.02)
-      ..lineTo(cx + w * 0.16, cy - h * 0.02)
-      ..lineTo(cx, cy - h * 0.22)
-      ..lineTo(cx - w * 0.16, cy - h * 0.02)
-      ..close();
-    canvas.drawPath(
-      roof,
-      Paint()..color = Color.lerp(roofColor, FarmlyColors.textPrimary, 0.08)!,
-    );
-    // Round window on the left face, door centred on the front.
-    canvas.drawCircle(
-      Offset(cx - w * 0.04, cy + h * 0.05),
-      w * 0.035,
-      Paint()..color = FarmlyColors.surface,
-    );
-    canvas.drawCircle(
-      Offset(cx - w * 0.04, cy + h * 0.05),
-      w * 0.035,
-      Paint()
-        ..color = darkWall
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(
-        cx + (isHouse ? w * 0.02 : -w * 0.075),
-        cy + h * 0.08,
-        isHouse ? w * 0.07 : w * 0.15,
-        h * 0.2,
-      ),
-      Paint()..color = FarmlyColors.surface,
-    );
-    if (!isHouse) {
-      // Cross-brace on the barn door.
-      final brace = Paint()
-        ..color = darkWall
-        ..strokeWidth = 1.4;
-      canvas.drawLine(
-        Offset(cx - w * 0.075, cy + h * 0.08),
-        Offset(cx + w * 0.075, cy + h * 0.28),
-        brace,
-      );
-      canvas.drawLine(
-        Offset(cx + w * 0.075, cy + h * 0.08),
-        Offset(cx - w * 0.075, cy + h * 0.28),
-        brace,
+    for (var i = 0; i < 4; i++) {
+      FarmLifePainter.drawGrassTuft(
+        canvas,
+        ground: Offset(w * (0.12 + i * 0.25), h * 0.9),
+        scale: 0.85,
+        phase: phase,
+        seed: i + 30,
       );
     }
   }
@@ -1250,6 +1257,7 @@ class IsoZoneTilePainter extends CustomPainter {
   @override
   bool shouldRepaint(IsoZoneTilePainter oldDelegate) =>
       oldDelegate.kind != kind ||
+      oldDelegate.name != name ||
       oldDelegate.selected != selected ||
       oldDelegate.phase != phase;
 }

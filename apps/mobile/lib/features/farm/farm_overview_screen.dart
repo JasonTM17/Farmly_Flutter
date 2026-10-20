@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/format/decimal_format.dart';
+import '../../core/sync/sync_providers.dart';
 import '../../core/theme/farmly_spacing.dart';
 import '../../core/theme/farmly_theme_extension.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -15,6 +16,7 @@ import '../../ui/zone_explorer.dart';
 import '../app/app_routes.dart';
 import '../demo/demo_models.dart';
 import '../demo/demo_providers.dart';
+import 'live_farm_zones.dart';
 
 const _demoToday = '2026-10-06';
 
@@ -61,6 +63,25 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final liveScope = ref.watch(farmlySyncScopeProvider);
+    if (liveScope.isLoading) {
+      return FarmScaffold(
+        topBar: FarmTopBar(title: l10n.farmOverviewFallbackTitle),
+        body: const _FarmSkeleton(),
+      );
+    }
+    if (liveScope.hasError) {
+      return FarmScaffold(
+        topBar: FarmTopBar(title: l10n.farmOverviewFallbackTitle),
+        body: FarmErrorView(
+          onRetry: () => ref.invalidate(farmlySyncScopeProvider),
+          onSwitchScope: () => showFarmPickerSheet(context),
+        ),
+      );
+    }
+    if (liveScope.value != null) return const LiveFarmZonesScreen();
+
     final state = ref.watch(demoDataProvider);
     final farm = farmById(state, state.selectedFarmId);
     final organization = organizationById(state, state.selectedOrganizationId);
@@ -75,8 +96,6 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
     final selectedZone = zones
         .where((zone) => zone.id == _selectedZoneId)
         .firstOrNull;
-    final l10n = AppLocalizations.of(context);
-
     return FarmScaffold(
       topBar: FarmTopBar(
         title: farm?.name ?? l10n.farmOverviewFallbackTitle,
@@ -168,6 +187,7 @@ class _FarmOverviewScreenState extends ConsumerState<FarmOverviewScreen> {
                         ref,
                         state.selectedFarmId,
                       ),
+                      onOpenAnimals: () => context.push(AppRoutes.livestock),
                     ),
                   ),
                   const SizedBox(height: FarmSpacing.sm),
@@ -287,19 +307,19 @@ class _ZonePanel extends ConsumerWidget {
                   ),
                   child: Text(
                     _zoneKindLabel(l10n, selectedZone.kind),
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: tokens.textPrimary,
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelSmall?.copyWith(color: tokens.textPrimary),
                   ),
                 ),
                 const SizedBox(width: FarmSpacing.sm),
                 Flexible(
                   child: Text(
-                  selectedZone.subtitle ?? '',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: tokens.textSecondary,
-                  ),
-                  softWrap: true,
+                    selectedZone.subtitle ?? '',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: tokens.textSecondary,
+                    ),
+                    softWrap: true,
                   ),
                 ),
               ],
@@ -343,13 +363,14 @@ class _ZonePanel extends ConsumerWidget {
   }
 }
 
-String _zoneKindLabel(AppLocalizations l10n, DemoZoneKind kind) => switch (kind) {
-  DemoZoneKind.crop => l10n.zoneKindCrop,
-  DemoZoneKind.livestock => l10n.zoneKindLivestock,
-  DemoZoneKind.water => l10n.zoneKindWater,
-  DemoZoneKind.storage => l10n.zoneKindStorage,
-  DemoZoneKind.house => l10n.zoneKindHouse,
-};
+String _zoneKindLabel(AppLocalizations l10n, DemoZoneKind kind) =>
+    switch (kind) {
+      DemoZoneKind.crop => l10n.zoneKindCrop,
+      DemoZoneKind.livestock => l10n.zoneKindLivestock,
+      DemoZoneKind.water => l10n.zoneKindWater,
+      DemoZoneKind.storage => l10n.zoneKindStorage,
+      DemoZoneKind.house => l10n.zoneKindHouse,
+    };
 
 /// Minimal create-zone sheet backing the My Farm no-zone CTA (spec 02 §5):
 /// names the zone, picks its kind and stores it as a local demo write.
@@ -450,10 +471,7 @@ class _CreateZoneSheetState extends ConsumerState<_CreateZoneSheet> {
             const SizedBox(height: FarmSpacing.md),
             AsOfLabel(asOf: _demoToday, source: l10n.enteredByYou),
             const SizedBox(height: FarmSpacing.lg),
-            FilledButton(
-              onPressed: _save,
-              child: Text(l10n.saveOnDevice),
-            ),
+            FilledButton(onPressed: _save, child: Text(l10n.saveOnDevice)),
           ],
         ),
       ),
