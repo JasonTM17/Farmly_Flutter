@@ -66,6 +66,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: "3.12.0"
+
+      - name: Generate API contract types
+        run: node ../../contracts/scripts/build-contracts.mjs
+
+      - name: Check generated OpenAPI contract
+        run: git -C ../.. diff --exit-code -- contracts/openapi/farmly-v1.yaml
+
       - name: Unit tests
         run: npm run test:unit
 
