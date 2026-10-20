@@ -436,6 +436,49 @@ void main() {
       expect(find.text(l10n.liveHarvestVoid), findsNothing);
     });
 
+    testWidgets('read-only harvest details preserve pending sync status', (
+      tester,
+    ) async {
+      phoneViewport(tester);
+      final scope = _scope(
+        FarmlyFarmGrantRole.viewer,
+        organizationRole: FarmlyOrganizationRole.member,
+      );
+      await _pumpLiveHarvest(
+        tester,
+        scope,
+        _collection(
+          scope,
+          harvests: [
+            _harvest(
+              'viewer-pending-record',
+              '10',
+              '2026-10-21',
+              pendingManagerMutationState: FarmlyZoneSyncState.savedOnDevice,
+            ),
+          ],
+        ),
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('live-harvest-row-viewer-pending-record')),
+      );
+      await tester.pumpAndSettle();
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(FarmlyLiveHarvestScreen)),
+      );
+      final details = find.byType(BottomSheet);
+      expect(details, findsOneWidget);
+      expect(
+        find.descendant(of: details, matching: find.text(l10n.pendingSyncChip)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: details, matching: find.text(l10n.syncSynced)),
+        findsNothing,
+      );
+    });
+
     testWidgets(
       'add CTA opens planting picker then existing live create form',
       (tester) async {

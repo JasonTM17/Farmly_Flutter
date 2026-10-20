@@ -396,7 +396,7 @@ class _FarmlyLiveHarvestScreenState
     );
     final status = harvest.status == 'voided'
         ? l10n.liveHarvestVoided
-        : _syncLabel(
+        : _harvestSyncLabel(
             l10n,
             harvest.pendingManagerMutationState ?? harvest.syncState,
           );
@@ -602,16 +602,6 @@ class _FarmlyLiveHarvestScreenState
     return MaterialLocalizations.of(context).formatMediumDate(parsed);
   }
 
-  String _syncLabel(AppLocalizations l10n, FarmlyZoneSyncState state) =>
-      switch (state) {
-        FarmlyZoneSyncState.confirmed => l10n.syncSynced,
-        FarmlyZoneSyncState.savedOnDevice => l10n.pendingSyncChip,
-        FarmlyZoneSyncState.checkingServer => l10n.syncCheckingServerResult,
-        FarmlyZoneSyncState.awaitingProjection =>
-          l10n.liveFarmAwaitingProjection,
-        FarmlyZoneSyncState.needsAttention => l10n.syncRejectedNeedsReview,
-      };
-
   void _retry() => ref.invalidate(farmlyLiveZoneCollectionProvider);
 }
 
@@ -722,7 +712,10 @@ class _HarvestReadOnlyDetails extends StatelessWidget {
             Text(
               harvest.status == 'voided'
                   ? l10n.liveHarvestVoided
-                  : l10n.syncSynced,
+                  : _harvestSyncLabel(
+                      l10n,
+                      harvest.pendingManagerMutationState ?? harvest.syncState,
+                    ),
             ),
           ],
         ),
@@ -754,6 +747,15 @@ class _StatusChip extends StatelessWidget {
     );
   }
 }
+
+String _harvestSyncLabel(AppLocalizations l10n, FarmlyZoneSyncState state) =>
+    switch (state) {
+      FarmlyZoneSyncState.confirmed => l10n.syncSynced,
+      FarmlyZoneSyncState.savedOnDevice => l10n.pendingSyncChip,
+      FarmlyZoneSyncState.checkingServer => l10n.syncCheckingServerResult,
+      FarmlyZoneSyncState.awaitingProjection => l10n.liveFarmAwaitingProjection,
+      FarmlyZoneSyncState.needsAttention => l10n.syncRejectedNeedsReview,
+    };
 
 final class _FarmWeek {
   const _FarmWeek(this.startDate, this.endDate, this.startKey, this.endKey);
