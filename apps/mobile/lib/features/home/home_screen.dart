@@ -382,7 +382,7 @@ class _HomeContent extends ConsumerWidget {
               ),
               child: FarmAmbientLoop(
                 builder: (context, phase) => CustomPaint(
-                  painter: FarmScenePainter(phase: phase),
+                  painter: FarmScenePainter(phase: phase, homeBanner: true),
                   size: Size.infinite,
                 ),
               ),

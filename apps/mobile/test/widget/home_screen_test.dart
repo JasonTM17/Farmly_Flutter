@@ -8,6 +8,7 @@ import 'package:farmly_mobile/features/demo/demo_providers.dart';
 import 'package:farmly_mobile/features/home/home_screen.dart';
 import 'package:farmly_mobile/l10n/generated/app_localizations.dart';
 import 'package:farmly_mobile/ui/farm_card.dart';
+import 'package:farmly_mobile/ui/illustrations.dart';
 import 'package:farmly_mobile/ui/screen_states.dart';
 import 'package:farmly_mobile/ui/summary_cards.dart';
 
@@ -65,6 +66,38 @@ void main() {
       scrollable: find.byType(Scrollable),
     );
     expect(find.text('Hỏi Farmly AI'), findsOneWidget);
+  });
+
+  testWidgets('Home banner opts into the detailed scene and stays still', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+
+    for (final width in [360.0, 390.0, 412.0]) {
+      tester.view.physicalSize = Size(width, 844);
+      tester.view.devicePixelRatio = 1;
+
+      await pumpHome(tester);
+
+      final scene = find.byWidgetPredicate(
+        (widget) => widget is CustomPaint && widget.painter is FarmScenePainter,
+      );
+      expect(scene, findsOneWidget);
+
+      final painter = tester.widget<CustomPaint>(scene).painter!;
+      expect(painter, isA<FarmScenePainter>());
+      expect((painter as FarmScenePainter).homeBanner, isTrue);
+      expect(painter.phase, 0);
+      expect(tester.getSize(scene).width, greaterThan(0));
+      expect(tester.getSize(scene).height, 150);
+      expect(tester.takeException(), isNull);
+    }
+    expect(
+      const FarmScenePainter().shouldRepaint(
+        const FarmScenePainter(homeBanner: true),
+      ),
+      isTrue,
+    );
   });
 
   testWidgets(

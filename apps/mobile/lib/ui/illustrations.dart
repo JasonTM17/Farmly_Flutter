@@ -20,11 +20,13 @@ class FarmScenePainter extends CustomPainter {
   const FarmScenePainter({
     this.showBarn = true,
     this.showSun = true,
+    this.homeBanner = false,
     this.phase = 0,
   });
 
   final bool showBarn;
   final bool showSun;
+  final bool homeBanner;
 
   /// Ambient phase 0..1 — clouds drift right-to-left and birds bob. Painted
   /// scenes that pass a changing phase must set [shouldRepaint] accordingly.
@@ -34,7 +36,7 @@ class FarmScenePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
-    final horizon = h * 0.68;
+    final horizon = h * (homeBanner ? 0.62 : 0.68);
 
     // Sky — light blue softening toward the horizon cream.
     final skyPaint = Paint()
@@ -75,75 +77,285 @@ class FarmScenePainter extends CustomPainter {
       h * 0.05,
     );
 
-    // Far hill band (lighter sage) then near hill (darker).
-    final farHill = Paint()
-      ..color = Color.lerp(
-        FarmlyColors.brandSage,
-        FarmlyColors.background,
-        0.3,
-      )!;
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(w * 0.22, horizon + h * 0.1),
-        width: w * 1.15,
-        height: h * 0.5,
-      ),
-      farHill,
-    );
-    final midHill = Paint()..color = FarmlyColors.brandSage;
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(w * 0.78, horizon + h * 0.12),
-        width: w * 1.1,
-        height: h * 0.52,
-      ),
-      midHill,
-    );
+    if (homeBanner) {
+      _paintBannerRidges(canvas, w, h, horizon);
+      _paintBannerField(canvas, w, h, horizon);
+    } else {
+      // Far hill band (lighter sage) then near hill (darker).
+      final farHill = Paint()
+        ..color = Color.lerp(
+          FarmlyColors.brandSage,
+          FarmlyColors.background,
+          0.3,
+        )!;
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(w * 0.22, horizon + h * 0.1),
+          width: w * 1.15,
+          height: h * 0.5,
+        ),
+        farHill,
+      );
+      final midHill = Paint()..color = FarmlyColors.brandSage;
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(w * 0.78, horizon + h * 0.12),
+          width: w * 1.1,
+          height: h * 0.52,
+        ),
+        midHill,
+      );
 
-    // Ground strip + ploughed field rows (reference foreground).
-    canvas.drawRect(
-      Rect.fromLTWH(0, horizon, w, h - horizon),
+      // Ground strip + ploughed field rows (reference foreground).
+      canvas.drawRect(
+        Rect.fromLTWH(0, horizon, w, h - horizon),
+        Paint()
+          ..color = Color.lerp(
+            FarmlyColors.brandSage,
+            FarmlyColors.background,
+            0.42,
+          )!,
+      );
+      final rowPaint = Paint()
+        ..color = Color.lerp(
+          FarmlyColors.brandSage,
+          FarmlyColors.textPrimary,
+          0.12,
+        )!
+        ..strokeWidth = h * 0.02
+        ..strokeCap = StrokeCap.round;
+      for (var i = 0; i < 3; i++) {
+        final y = horizon + h * (0.09 + i * 0.075);
+        canvas.drawLine(
+          Offset(w * 0.04, y),
+          Offset(w * 0.62, y + h * 0.02),
+          rowPaint,
+        );
+      }
+    }
+
+    if (showBarn) {
+      if (homeBanner) {
+        final barnBase = Offset(
+          w * 0.64,
+          _bannerGroundY(w * 0.64, w, h, horizon),
+        );
+        final siloBase = Offset(
+          w * 0.85,
+          _bannerGroundY(w * 0.85, w, h, horizon),
+        );
+        ClayShapes.shadow(
+          canvas,
+          barnBase + Offset(w * 0.025, h * 0.012),
+          w * 0.34,
+          h * 0.065,
+        );
+        ClayShapes.shadow(
+          canvas,
+          siloBase + Offset(w * 0.012, h * 0.01),
+          w * 0.11,
+          h * 0.04,
+        );
+        _paintSilo(canvas, siloBase, h * 0.37, w * 0.075);
+        _paintBarn(canvas, barnBase, h * 0.36, w * 0.265);
+      } else {
+        _paintSilo(
+          canvas,
+          Offset(w * 0.8, horizon - h * 0.02),
+          h * 0.34,
+          w * 0.07,
+        );
+        _paintBarn(canvas, Offset(w * 0.66, horizon), h * 0.3, w * 0.22);
+      }
+    }
+    final leftGround = homeBanner
+        ? _bannerGroundY(w * 0.1, w, h, horizon)
+        : horizon - h * 0.01;
+    final rightGround = homeBanner
+        ? _bannerGroundY(w * 0.92, w, h, horizon)
+        : horizon;
+    final pineGround = homeBanner
+        ? _bannerGroundY(w * 0.36, w, h, horizon)
+        : horizon + h * 0.01;
+    _paintTree(canvas, Offset(w * 0.1, leftGround), h * 0.16, w * 0.1);
+    _paintTree(canvas, Offset(w * 0.92, rightGround), h * 0.14, w * 0.09);
+    _paintPine(canvas, Offset(w * 0.36, pineGround), h * 0.14, w * 0.06);
+    if (homeBanner) {
+      FarmLifePainter.drawPastureAnimal(
+        canvas,
+        ground: Offset(w * 0.2, horizon + h * 0.25),
+        scale: h * 0.0058,
+        phase: phase,
+        seed: 47,
+        form: FarmAnimalForm.cow,
+        travel: 0.2,
+      );
+    }
+  }
+
+  double _bannerGroundY(double x, double width, double height, double horizon) {
+    final position = (x / width).clamp(0.0, 1.0);
+    return horizon + height * (0.16 + math.sin(position * math.pi) * 0.05);
+  }
+
+  void _paintBannerRidges(Canvas canvas, double w, double h, double horizon) {
+    final farRidge = Path()
+      ..moveTo(0, horizon + h * 0.04)
+      ..cubicTo(
+        w * 0.16,
+        horizon - h * 0.07,
+        w * 0.31,
+        horizon + h * 0.06,
+        w * 0.49,
+        horizon + h * 0.015,
+      )
+      ..cubicTo(
+        w * 0.67,
+        horizon - h * 0.06,
+        w * 0.84,
+        horizon + h * 0.04,
+        w,
+        horizon - h * 0.005,
+      )
+      ..lineTo(w, horizon + h * 0.22)
+      ..cubicTo(
+        w * 0.7,
+        horizon + h * 0.19,
+        w * 0.34,
+        horizon + h * 0.25,
+        0,
+        horizon + h * 0.21,
+      )
+      ..close();
+    canvas.drawPath(
+      farRidge,
       Paint()
         ..color = Color.lerp(
           FarmlyColors.brandSage,
           FarmlyColors.background,
-          0.42,
+          0.4,
         )!,
     );
-    final rowPaint = Paint()
-      ..color = Color.lerp(
-        FarmlyColors.brandSage,
-        FarmlyColors.textPrimary,
-        0.12,
-      )!
-      ..strokeWidth = h * 0.02
-      ..strokeCap = StrokeCap.round;
-    for (var i = 0; i < 3; i++) {
-      final y = horizon + h * (0.09 + i * 0.075);
-      canvas.drawLine(
-        Offset(w * 0.04, y),
-        Offset(w * 0.62, y + h * 0.02),
-        rowPaint,
-      );
-    }
 
-    if (showBarn) {
-      _paintSilo(
-        canvas,
-        Offset(w * 0.8, horizon - h * 0.02),
-        h * 0.34,
-        w * 0.07,
-      );
-      _paintBarn(canvas, Offset(w * 0.66, horizon), h * 0.3, w * 0.22);
-    }
-    _paintTree(canvas, Offset(w * 0.1, horizon - h * 0.01), h * 0.16, w * 0.1);
-    _paintTree(canvas, Offset(w * 0.92, horizon), h * 0.14, w * 0.09);
-    _paintPine(
-      canvas,
-      Offset(w * 0.36, horizon + h * 0.01),
-      h * 0.14,
-      w * 0.06,
+    final nearRidge = Path()
+      ..moveTo(0, horizon + h * 0.2)
+      ..cubicTo(
+        w * 0.23,
+        horizon + h * 0.09,
+        w * 0.42,
+        horizon + h * 0.25,
+        w * 0.6,
+        horizon + h * 0.2,
+      )
+      ..cubicTo(
+        w * 0.77,
+        horizon + h * 0.13,
+        w * 0.88,
+        horizon + h * 0.24,
+        w,
+        horizon + h * 0.18,
+      )
+      ..lineTo(w, horizon + h * 0.29)
+      ..cubicTo(
+        w * 0.66,
+        horizon + h * 0.27,
+        w * 0.3,
+        horizon + h * 0.32,
+        0,
+        horizon + h * 0.29,
+      )
+      ..close();
+    canvas.drawPath(nearRidge, Paint()..color = FarmlyColors.brandSage);
+  }
+
+  void _paintBannerField(Canvas canvas, double w, double h, double horizon) {
+    final topEdge = Path()
+      ..moveTo(0, _bannerGroundY(0, w, h, horizon))
+      ..cubicTo(
+        w * 0.28,
+        _bannerGroundY(w * 0.28, w, h, horizon),
+        w * 0.68,
+        _bannerGroundY(w * 0.68, w, h, horizon),
+        w,
+        _bannerGroundY(w, w, h, horizon),
+      )
+      ..lineTo(w, h)
+      ..lineTo(0, h)
+      ..close();
+    canvas.drawPath(
+      topEdge,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color.lerp(FarmlyColors.brandSage, FarmlyColors.surface, 0.18)!,
+            Color.lerp(FarmlyColors.brandSage, FarmlyColors.background, 0.36)!,
+          ],
+        ).createShader(Rect.fromLTWH(0, horizon, w, h - horizon)),
     );
+
+    final ridgeHighlight = Paint()
+      ..color = FarmlyColors.surface.withValues(alpha: 0.22)
+      ..strokeWidth = h * 0.008
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    canvas.drawPath(
+      Path()
+        ..moveTo(0, _bannerGroundY(0, w, h, horizon) + h * 0.012)
+        ..cubicTo(
+          w * 0.28,
+          _bannerGroundY(w * 0.28, w, h, horizon) + h * 0.012,
+          w * 0.68,
+          _bannerGroundY(w * 0.68, w, h, horizon) + h * 0.012,
+          w,
+          _bannerGroundY(w, w, h, horizon) + h * 0.012,
+        ),
+      ridgeHighlight,
+    );
+
+    for (var i = 0; i < 3; i++) {
+      final startY = horizon + h * (0.2 + i * 0.068);
+      final endY = startY + h * (0.016 + i * 0.008);
+      final furrow = Path()
+        ..moveTo(w * 0.035, startY)
+        ..cubicTo(
+          w * 0.2,
+          startY + h * 0.016,
+          w * 0.4,
+          startY - h * 0.004,
+          w * 0.66,
+          endY,
+        );
+      canvas.drawPath(
+        furrow,
+        Paint()
+          ..color = FarmlyColors.textPrimary.withValues(alpha: 0.08)
+          ..strokeWidth = h * (0.03 + i * 0.004)
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke,
+      );
+      canvas.drawPath(
+        furrow,
+        Paint()
+          ..color = Color.lerp(
+            FarmlyColors.brandSage,
+            FarmlyColors.textPrimary,
+            0.16,
+          )!.withValues(alpha: 0.58)
+          ..strokeWidth = h * (0.016 + i * 0.002)
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke,
+      );
+      canvas.drawPath(
+        furrow,
+        Paint()
+          ..color = FarmlyColors.surface.withValues(alpha: 0.22)
+          ..strokeWidth = h * 0.004
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke,
+      );
+    }
   }
 
   void _paintSun(Canvas canvas, Offset center, double r) {
@@ -295,6 +507,7 @@ class FarmScenePainter extends CustomPainter {
   bool shouldRepaint(FarmScenePainter oldDelegate) =>
       oldDelegate.showBarn != showBarn ||
       oldDelegate.showSun != showSun ||
+      oldDelegate.homeBanner != homeBanner ||
       oldDelegate.phase != phase;
 }
 
