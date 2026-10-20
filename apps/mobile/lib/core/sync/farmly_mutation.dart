@@ -46,6 +46,17 @@ const farmlySupportedTimeZones = <String>[
   'Africa/Johannesburg',
 ];
 
+/// Canonicalizes an animal tag exactly like PostgreSQL's default `btrim`.
+/// Case and non-space whitespace remain significant.
+String farmlyTrimAnimalTag(String value) =>
+    value.replaceFirst(RegExp(r'^ +'), '').replaceFirst(RegExp(r' +$'), '');
+
+void _requireAnimalTag(String value) {
+  if (value.isEmpty || value.length > 64) {
+    throw ArgumentError.value(value, 'tag', 'must be 1 to 64 characters');
+  }
+}
+
 final class FarmlyMutationScope {
   FarmlyMutationScope.organization({
     required String accountId,
@@ -182,6 +193,7 @@ sealed class FarmlyMutationIntent {
             type == 'zone.update' ||
             type == 'cropSpecies.update' ||
             type == 'cropSpecies.archive' ||
+            type == 'animal.update' ||
             type == 'waterTank.update' ||
             type == 'planting.update' ||
             type == 'planting.archive') &&
@@ -398,6 +410,22 @@ void _validateRestoredPayload(String type, Map<String, Object?> payload) {
           status: _optionalPayloadString(payload, 'status'),
         );
       });
+    case 'animal.update':
+      _requirePayloadKeys(
+        payload,
+        required: const {},
+        allowed: const {'tag', 'name', 'birthDate'},
+      );
+      if (payload.isEmpty) {
+        throw const FormatException('Invalid Farmly animal.update payload');
+      }
+      _validateCreatePayload(() {
+        FarmlyUpdateAnimalIntent._animalPayload(
+          tag: _optionalPayloadString(payload, 'tag'),
+          name: _optionalPayloadString(payload, 'name'),
+          birthDate: _optionalPayloadString(payload, 'birthDate'),
+        );
+      });
     case 'moistureReading.create':
       _requirePayloadKeys(
         payload,
@@ -559,8 +587,8 @@ final class FarmlyCreateAnimalIntent extends FarmlyMutationIntent {
     required String? status,
   }) {
     _requireUuid('herdId', herdId);
-    final normalizedTag = tag.trim();
-    _requireLength('tag', normalizedTag, max: 64);
+    final normalizedTag = farmlyTrimAnimalTag(tag);
+    _requireAnimalTag(normalizedTag);
     final normalizedName = name?.trim();
     if (normalizedName != null) {
       _requireLength('name', normalizedName, max: 160);
@@ -577,6 +605,52 @@ final class FarmlyCreateAnimalIntent extends FarmlyMutationIntent {
           ? null
           : _requireCivilDate('birthDate', birthDate)),
       'status': ?status,
+    };
+  }
+}
+
+/// Updates only the editable master fields of a confirmed animal. Status and
+/// herd identity stay outside this operation; the positive base version is
+/// the server's compare-and-swap token.
+final class FarmlyUpdateAnimalIntent extends FarmlyMutationIntent {
+  FarmlyUpdateAnimalIntent({
+    required super.operationId,
+    required super.continuityEpoch,
+    required super.resourceId,
+    required int baseVersion,
+    String? tag,
+    String? name,
+    String? birthDate,
+    super.dependsOn = const [],
+  }) : super._(
+         type: 'animal.update',
+         baseVersion: baseVersion,
+         payload: _animalPayload(tag: tag, name: name, birthDate: birthDate),
+       );
+
+  static Map<String, Object?> _animalPayload({
+    required String? tag,
+    required String? name,
+    required String? birthDate,
+  }) {
+    final normalizedTag = tag == null ? null : farmlyTrimAnimalTag(tag);
+    if (normalizedTag != null) _requireAnimalTag(normalizedTag);
+    final normalizedName = name?.trim();
+    if (normalizedName != null) {
+      _requireLength('name', normalizedName, max: 160);
+    }
+    final normalizedBirthDate = birthDate == null
+        ? null
+        : _requireCivilDate('birthDate', birthDate);
+    if (normalizedTag == null &&
+        normalizedName == null &&
+        normalizedBirthDate == null) {
+      throw ArgumentError('An animal update must change at least one field');
+    }
+    return {
+      'tag': ?normalizedTag,
+      'name': ?normalizedName,
+      'birthDate': ?normalizedBirthDate,
     };
   }
 }

@@ -390,24 +390,28 @@ FarmlyLiveLivestockMovementLedger projectFarmlyLiveLivestockMovements({
 final class FarmlyLiveAnimal {
   const FarmlyLiveAnimal({
     required this.id,
+    required this.version,
     required this.herdId,
     required this.tag,
     required this.name,
     required this.birthDate,
     required this.status,
     required this.archived,
+    required this.hasUnresolvedUpdate,
     required this.syncState,
     required this.productionRecords,
     required this.observations,
   });
 
   final String id;
+  final int version;
   final String herdId;
   final String tag;
   final String? name;
   final String? birthDate;
   final String status;
   final bool archived;
+  final bool hasUnresolvedUpdate;
   final FarmlyLivestockEntitySyncState syncState;
   final List<FarmlyLiveProductionRecord> productionRecords;
   final List<FarmlyLiveAnimalObservation> observations;
@@ -643,6 +647,7 @@ final farmlyLiveLivestockProvider =
       }
 
       final animalsByHerd = <String, List<FarmlyAnimalDto>>{};
+      final animalsById = <String, FarmlyAnimalDto>{};
       final animalSyncStateById = <String, FarmlyLivestockEntitySyncState>{};
       final snapshotAnimals = snapshot.recordsFor('animal');
       final snapshotAnimalIds = snapshotAnimals.keys.toSet();
@@ -651,6 +656,7 @@ final farmlyLiveLivestockProvider =
         final animal = FarmlyAnimalDto.fromJson(Map<String, dynamic>.from(row));
         if (!herds.containsKey(animal.herdId)) continue;
         animalsByHerd.putIfAbsent(animal.herdId, () => []).add(animal);
+        animalsById[animal.id] = animal;
         animalSyncStateById[animal.id] =
             FarmlyLivestockEntitySyncState.confirmed;
       }
@@ -705,7 +711,64 @@ final farmlyLiveLivestockProvider =
           'archived': false,
         });
         animalsByHerd.putIfAbsent(herdId, () => []).add(animal);
+        animalsById[resourceId] = animal;
         animalSyncStateById[resourceId] = _entitySyncState(entry.status);
+      }
+
+      final updateEntriesByAnimalId = <String, List<OutboxEntry>>{};
+      for (final entry in entries) {
+        if (!_entryMatchesScope(entry, syncScope) ||
+            entry.mutation.intent.type != 'animal.update') {
+          continue;
+        }
+        updateEntriesByAnimalId
+            .putIfAbsent(entry.mutation.intent.resourceId, () => [])
+            .add(entry);
+      }
+      final animalHasUnresolvedUpdateById = <String, bool>{};
+      for (final item in updateEntriesByAnimalId.entries) {
+        final current = animalsById[item.key];
+        final unresolved = item.value
+            .where((entry) => _animalUpdateIsUnresolved(entry, current))
+            .toList(growable: false);
+        if (unresolved.isEmpty) continue;
+        animalHasUnresolvedUpdateById[item.key] = true;
+        // Multiple live edits for one animal have no safe local ordering
+        // contract. Keep the confirmed row visible and block another edit.
+        if (unresolved.length != 1) continue;
+
+        final entry = unresolved.single;
+        final baseVersion = entry.mutation.intent.baseVersion;
+        if (!_canProjectCreate(entry.status) ||
+            current == null ||
+            baseVersion == null ||
+            current.version != baseVersion) {
+          continue;
+        }
+        final payload = entry.mutation.intent.payload;
+        final intent = FarmlyUpdateAnimalIntent(
+          operationId: entry.operationId,
+          continuityEpoch: syncScope.continuityEpoch,
+          resourceId: entry.mutation.intent.resourceId,
+          baseVersion: baseVersion,
+          tag: _optionalLocalString(payload, 'tag'),
+          name: _optionalLocalString(payload, 'name'),
+          birthDate: _optionalLocalString(payload, 'birthDate'),
+          dependsOn: entry.dependsOn,
+        );
+        final projected = FarmlyAnimalDto.fromJson({
+          ...current.toJson(),
+          ...intent.payload,
+        });
+        final herdAnimals = animalsByHerd[current.herdId];
+        if (herdAnimals == null) continue;
+        final animalIndex = herdAnimals.indexWhere(
+          (animal) => animal.id == current.id,
+        );
+        if (animalIndex < 0) continue;
+        herdAnimals[animalIndex] = projected;
+        animalsById[current.id] = projected;
+        animalSyncStateById[current.id] = _entitySyncState(entry.status);
       }
       final activeAnimalIds = animalsByHerd.values
           .expand((animals) => animals)
@@ -806,12 +869,15 @@ final farmlyLiveLivestockProvider =
             .map(
               (animal) => FarmlyLiveAnimal(
                 id: animal.id,
+                version: animal.version,
                 herdId: animal.herdId,
                 tag: animal.tag,
                 name: animal.name,
                 birthDate: animal.birthDate,
                 status: animal.status,
                 archived: animal.archived,
+                hasUnresolvedUpdate:
+                    animalHasUnresolvedUpdateById[animal.id] ?? false,
                 syncState:
                     animalSyncStateById[animal.id] ??
                     FarmlyLivestockEntitySyncState.confirmed,
@@ -1009,6 +1075,7 @@ int _livestockAttentionCount(
           _entryMatchesScope(entry, scope) &&
           (entry.mutation.intent.type == 'herd.create' ||
               entry.mutation.intent.type == 'animal.create' ||
+              entry.mutation.intent.type == 'animal.update' ||
               entry.mutation.intent.type == 'productionRecord.create' ||
               entry.mutation.intent.type == 'livestockMovement.create' ||
               entry.mutation.intent.type == 'animalObservation.create') &&
@@ -1017,6 +1084,15 @@ int _livestockAttentionCount(
               entry.status == OutboxEntryStatus.blocked),
     )
     .length;
+
+bool _animalUpdateIsUnresolved(OutboxEntry entry, FarmlyAnimalDto? current) {
+  if (entry.status == OutboxEntryStatus.rejected) return false;
+  if (entry.status != OutboxEntryStatus.applied) return true;
+  final baseVersion = entry.mutation.intent.baseVersion;
+  return current == null ||
+      baseVersion == null ||
+      current.version <= baseVersion;
+}
 
 FarmlyLiveProductionRecord _confirmedProductionRecord(
   Map<String, Object?> json,

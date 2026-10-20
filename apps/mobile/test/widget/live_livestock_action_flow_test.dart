@@ -21,9 +21,11 @@ import 'package:farmly_mobile/l10n/generated/app_localizations.dart';
 const _accountId = '11111111-1111-4111-8111-111111111111';
 const _organizationId = '22222222-2222-4222-8222-222222222222';
 const _farmId = '33333333-3333-4333-8333-333333333333';
+const _otherFarmId = '33333333-3333-4333-8333-333333333334';
 const _batchHerdId = '44444444-4444-4444-8444-444444444444';
 const _trackedHerdId = '55555555-5555-4555-8555-555555555555';
 const _animalId = '66666666-6666-4666-8666-666666666666';
+const _duplicateAnimalId = '66666666-6666-4666-8666-666666666667';
 const _archivedHerdId = '77777777-7777-4777-8777-777777777777';
 const _archivedAnimalId = '77777777-7777-4777-8777-777777777778';
 const _pendingHerdId = '88888888-8888-4888-8888-888888888881';
@@ -65,6 +67,8 @@ class _SelectedScopeController extends SelectedOrganizationScopeController {
 
   @override
   FarmlyOrganizationScope? build() => initialScope;
+
+  void replaceScope(FarmlyOrganizationScope? scope) => state = scope;
 }
 
 class _NoTransportCalls implements SyncTransport {
@@ -151,9 +155,31 @@ FarmlyOrganizationScope _scope({
   selectedFarmId: selectedFarmId,
 );
 
+FarmlyOrganizationScope _twoFarmManagerScope({
+  String selectedFarmId = _farmId,
+}) => _scope(
+  farmRole: FarmlyFarmGrantRole.manager,
+  selectedFarmId: selectedFarmId,
+  farms: const [
+    FarmlyDirectoryFarm(
+      id: _farmId,
+      name: 'Nông trại kiểm thử',
+      status: FarmlyFarmStatus.active,
+      grantRole: FarmlyFarmGrantRole.manager,
+    ),
+    FarmlyDirectoryFarm(
+      id: _otherFarmId,
+      name: 'Trang trại khác',
+      status: FarmlyFarmStatus.active,
+      grantRole: FarmlyFarmGrantRole.manager,
+    ),
+  ],
+);
+
 Future<void> _installLivestockSnapshot(
   InMemoryDomainStore domain, {
   List<Map<String, Object?>> observationRecords = const [],
+  List<Map<String, Object?>> productionRecords = const [],
   List<Map<String, Object?>> herdRecords = const [
     {
       'id': _batchHerdId,
@@ -187,6 +213,7 @@ Future<void> _installLivestockSnapshot(
       'herdId': _trackedHerdId,
       'tag': 'COW-001',
       'name': 'Mây',
+      'birthDate': '2022-05-11',
       'status': 'alive',
       'archived': false,
     },
@@ -198,6 +225,8 @@ Future<void> _installLivestockSnapshot(
     BootstrapBlock(entity: 'animal', records: animalRecords),
     if (observationRecords.isNotEmpty)
       BootstrapBlock(entity: 'animalObservation', records: observationRecords),
+    if (productionRecords.isNotEmpty)
+      BootstrapBlock(entity: 'productionRecord', records: productionRecords),
   ],
   cursor: const SyncCursorState(
     cursor: 'cursor-livestock',
@@ -258,6 +287,33 @@ Future<OutboxEntry> _seedAnimalCreate({
     ),
   );
   if (status == OutboxEntryStatus.pending) return entry;
+  final updated = entry.copyWith(status: status);
+  await outbox.update(updated);
+  return updated;
+}
+
+Future<OutboxEntry> _seedAnimalUpdate({
+  required InMemoryOutboxStore outbox,
+  required FarmlyMutationScope scope,
+  required String operationId,
+  required String resourceId,
+  required int baseVersion,
+  required Map<String, Object?> payload,
+  required OutboxEntryStatus status,
+}) async {
+  final intent = FarmlyMutationIntent.fromJson({
+    'schemaVersion': FarmlyMutationIntent.schemaVersion,
+    'continuityEpoch': scope.continuityEpoch,
+    'operationId': operationId,
+    'type': 'animal.update',
+    'resourceId': resourceId,
+    'baseVersion': baseVersion,
+    'dependsOn': const <String>[],
+    'payload': payload,
+  });
+  final entry = await outbox.enqueue(
+    FarmlyScopedMutation(scope: scope, intent: intent),
+  );
   final updated = entry.copyWith(status: status);
   await outbox.update(updated);
   return updated;
@@ -501,6 +557,33 @@ Future<void> _createAnimal(
   await tester.enterText(find.byKey(const ValueKey('live-animal-tag')), tag);
   await tester.enterText(find.byKey(const ValueKey('live-animal-name')), name);
   await tester.tap(find.byKey(const ValueKey('live-animal-save')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _openAnimalEdit(
+  WidgetTester tester, {
+  String animalId = _animalId,
+}) async {
+  final action = find.byKey(ValueKey('live-animal-edit-$animalId'));
+  await _scrollLivestockToKey(tester, action);
+  expect(action, findsOneWidget);
+  await tester.tap(action);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _saveAnimalEdit(
+  WidgetTester tester, {
+  required String tag,
+  String? name,
+}) async {
+  await tester.enterText(find.byKey(const ValueKey('live-animal-tag')), tag);
+  if (name != null) {
+    await tester.enterText(
+      find.byKey(const ValueKey('live-animal-name')),
+      name,
+    );
+  }
+  await tester.tap(find.byKey(const ValueKey('live-animal-edit-save')));
   await tester.pumpAndSettle();
 }
 
@@ -1382,6 +1465,466 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'manager edits a confirmed tracked animal offline and preserves its history',
+    (tester) async {
+      const productionId = '00000000-0000-4000-8000-000000000701';
+      const observationId = '00000000-0000-4000-8000-000000000702';
+      final domain = InMemoryDomainStore();
+      await _installLivestockSnapshot(
+        domain,
+        productionRecords: const [
+          {
+            'id': productionId,
+            'animalId': _animalId,
+            'herdId': null,
+            'product': 'milk',
+            'quantity': '3.5',
+            'unit': 'litre',
+            'recordedOn': '2026-10-18',
+          },
+        ],
+        observationRecords: const [
+          {
+            'id': observationId,
+            'animalId': _animalId,
+            'herdId': null,
+            'kind': 'vet',
+            'note': 'Khám sức khỏe đã xác nhận',
+            'observedOn': '2026-10-18',
+          },
+        ],
+      );
+      final harness = await _pumpLivestock(
+        tester,
+        scope: _scope(farmRole: FarmlyFarmGrantRole.manager),
+        domain: domain,
+      );
+
+      await _openAnimalEdit(tester);
+      await _saveAnimalEdit(tester, tag: 'COW-009', name: 'Mây mới');
+
+      final entries = await harness.outbox.entries(
+        accountId: _accountId,
+        organizationId: _organizationId,
+      );
+      expect(entries, hasLength(1));
+      final update = entries.single.mutation.intent as FarmlyUpdateAnimalIntent;
+      expect(update.type, 'animal.update');
+      expect(update.resourceId, _animalId);
+      expect(update.baseVersion, 1);
+      expect(update.payload, {'tag': 'COW-009', 'name': 'Mây mới'});
+      expect(entries.single.mutation.scope.farmId, _farmId);
+      expect(entries.single.status, OutboxEntryStatus.pending);
+
+      final collection = await harness.container.read(
+        farmlyLiveLivestockProvider.future,
+      );
+      final animal = collection.herds
+          .singleWhere((herd) => herd.id == _trackedHerdId)
+          .animals
+          .singleWhere((row) => row.id == _animalId);
+      expect(animal.id, _animalId);
+      expect(animal.herdId, _trackedHerdId);
+      expect(animal.tag, 'COW-009');
+      expect(animal.name, 'Mây mới');
+      expect(animal.birthDate, '2022-05-11');
+      expect(animal.productionRecords.map((row) => row.id), [productionId]);
+      expect(animal.observations.map((row) => row.id), [observationId]);
+      expect(harness.transport.calls, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('canceling an animal edit leaves the outbox unchanged', (
+    tester,
+  ) async {
+    final domain = InMemoryDomainStore();
+    await _installLivestockSnapshot(domain);
+    final harness = await _pumpLivestock(
+      tester,
+      scope: _scope(farmRole: FarmlyFarmGrantRole.manager),
+      domain: domain,
+    );
+
+    await _openAnimalEdit(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('live-animal-tag')),
+      'COW-CANCELLED',
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('live-animal-edit-save')), findsNothing);
+    expect(
+      await harness.outbox.entries(
+        accountId: _accountId,
+        organizationId: _organizationId,
+      ),
+      isEmpty,
+    );
+    final collection = await harness.container.read(
+      farmlyLiveLivestockProvider.future,
+    );
+    expect(
+      collection.herds
+          .singleWhere((row) => row.id == _trackedHerdId)
+          .animals
+          .singleWhere((row) => row.id == _animalId)
+          .tag,
+      'COW-001',
+    );
+    expect(harness.transport.calls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('workers and viewers cannot edit confirmed animals', (
+    tester,
+  ) async {
+    for (final scope in [
+      _scope(farmRole: FarmlyFarmGrantRole.worker),
+      _scope(
+        organizationRole: FarmlyOrganizationRole.viewer,
+        farmRole: FarmlyFarmGrantRole.manager,
+      ),
+    ]) {
+      final domain = InMemoryDomainStore();
+      await _installLivestockSnapshot(domain);
+      final harness = await _pumpLivestock(
+        tester,
+        scope: scope,
+        domain: domain,
+      );
+
+      expect(
+        find.byKey(const ValueKey('live-animal-edit-$_animalId')),
+        findsNothing,
+      );
+      expect(
+        await harness.outbox.entries(
+          accountId: _accountId,
+          organizationId: _organizationId,
+        ),
+        isEmpty,
+      );
+      expect(harness.transport.calls, 0);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    }
+  });
+
+  testWidgets('duplicate farm-local animal tags are rejected', (tester) async {
+    final domain = InMemoryDomainStore();
+    await _installLivestockSnapshot(
+      domain,
+      animalRecords: const [
+        {
+          'id': _animalId,
+          'version': 1,
+          'herdId': _trackedHerdId,
+          'tag': 'COW-001',
+          'name': 'Mây',
+          'birthDate': '2022-05-11',
+          'status': 'alive',
+          'archived': false,
+        },
+        {
+          'id': _duplicateAnimalId,
+          'version': 1,
+          'herdId': _trackedHerdId,
+          'tag': 'COW-002',
+          'name': 'Bông',
+          'status': 'alive',
+          'archived': false,
+        },
+      ],
+    );
+    final harness = await _pumpLivestock(
+      tester,
+      scope: _scope(farmRole: FarmlyFarmGrantRole.manager),
+      domain: domain,
+    );
+
+    await _openAnimalEdit(tester);
+    await _saveAnimalEdit(tester, tag: 'COW-002');
+
+    expect(
+      find.byKey(const ValueKey('live-animal-edit-error')),
+      findsOneWidget,
+    );
+    expect(
+      await harness.outbox.entries(
+        accountId: _accountId,
+        organizationId: _organizationId,
+      ),
+      isEmpty,
+    );
+    final collection = await harness.container.read(
+      farmlyLiveLivestockProvider.future,
+    );
+    final animals = collection.herds
+        .singleWhere((row) => row.id == _trackedHerdId)
+        .animals;
+    expect(animals.singleWhere((row) => row.id == _animalId).tag, 'COW-001');
+    expect(harness.transport.calls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('released tag from an applied update can be reused', (
+    tester,
+  ) async {
+    final domain = InMemoryDomainStore();
+    await _installLivestockSnapshot(
+      domain,
+      animalRecords: const [
+        {
+          'id': _animalId,
+          'version': 1,
+          'herdId': _trackedHerdId,
+          'tag': 'COW-001',
+          'name': 'Mây',
+          'birthDate': '2022-05-11',
+          'status': 'alive',
+          'archived': false,
+        },
+        {
+          'id': _duplicateAnimalId,
+          'version': 2,
+          'herdId': _trackedHerdId,
+          'tag': 'COW-003',
+          'name': 'Bông',
+          'status': 'alive',
+          'archived': false,
+        },
+      ],
+    );
+    final outbox = InMemoryOutboxStore();
+    final scope = FarmlyMutationScope.farm(
+      accountId: _accountId,
+      organizationId: _organizationId,
+      farmId: _farmId,
+      continuityEpoch: '37',
+    );
+    await _seedAnimalUpdate(
+      outbox: outbox,
+      scope: scope,
+      operationId: '99999999-9999-4999-8999-999999999978',
+      resourceId: _duplicateAnimalId,
+      baseVersion: 1,
+      payload: const {'tag': 'COW-002'},
+      status: OutboxEntryStatus.applied,
+    );
+    final harness = await _pumpLivestock(
+      tester,
+      scope: _scope(farmRole: FarmlyFarmGrantRole.manager),
+      domain: domain,
+      outbox: outbox,
+    );
+
+    await _openAnimalEdit(tester);
+    await _saveAnimalEdit(tester, tag: 'COW-002');
+
+    expect(find.byKey(const ValueKey('live-animal-edit-error')), findsNothing);
+    final entries = await harness.outbox.entries(
+      accountId: _accountId,
+      organizationId: _organizationId,
+    );
+    expect(entries, hasLength(2));
+    final queuedUpdate = entries.singleWhere(
+      (entry) => entry.mutation.intent.resourceId == _animalId,
+    );
+    expect(queuedUpdate.status, OutboxEntryStatus.pending);
+    expect(queuedUpdate.mutation.intent.payload['tag'], 'COW-002');
+    final collection = await harness.container.read(
+      farmlyLiveLivestockProvider.future,
+    );
+    final animals = collection.herds
+        .singleWhere((row) => row.id == _trackedHerdId)
+        .animals;
+    expect(animals.singleWhere((row) => row.id == _animalId).tag, 'COW-002');
+    expect(
+      animals.singleWhere((row) => row.id == _duplicateAnimalId).tag,
+      'COW-003',
+    );
+    expect(harness.transport.calls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('scope change after opening the editor prevents enqueue', (
+    tester,
+  ) async {
+    final domain = InMemoryDomainStore();
+    await _installLivestockSnapshot(domain);
+    final harness = await _pumpLivestock(
+      tester,
+      scope: _scope(farmRole: FarmlyFarmGrantRole.manager),
+      domain: domain,
+    );
+    await _openAnimalEdit(tester);
+    (harness.container.read(selectedOrganizationScopeProvider.notifier)
+            as _SelectedScopeController)
+        .replaceScope(null);
+    await tester.pump();
+    await _saveAnimalEdit(tester, tag: 'COW-NEW');
+
+    expect(
+      find.byKey(const ValueKey('live-animal-edit-error')),
+      findsOneWidget,
+    );
+    expect(
+      await harness.outbox.entries(
+        accountId: _accountId,
+        organizationId: _organizationId,
+      ),
+      isEmpty,
+    );
+    expect(harness.transport.calls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('role or selected-farm change blocks an open animal edit', (
+    tester,
+  ) async {
+    for (final nextScope in [
+      _scope(farmRole: FarmlyFarmGrantRole.worker),
+      _twoFarmManagerScope(selectedFarmId: _otherFarmId),
+    ]) {
+      final domain = InMemoryDomainStore();
+      await _installLivestockSnapshot(domain);
+      final harness = await _pumpLivestock(
+        tester,
+        scope: nextScope.selectedFarmId == _otherFarmId
+            ? _twoFarmManagerScope()
+            : _scope(farmRole: FarmlyFarmGrantRole.manager),
+        domain: domain,
+      );
+      await _openAnimalEdit(tester);
+      (harness.container.read(selectedOrganizationScopeProvider.notifier)
+              as _SelectedScopeController)
+          .replaceScope(nextScope);
+      await tester.pump();
+      await _saveAnimalEdit(tester, tag: 'COW-NEW');
+
+      expect(
+        find.byKey(const ValueKey('live-animal-edit-error')),
+        findsOneWidget,
+      );
+      expect(
+        await harness.outbox.entries(
+          accountId: _accountId,
+          organizationId: _organizationId,
+        ),
+        isEmpty,
+      );
+      expect(harness.transport.calls, 0);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    }
+  });
+
+  testWidgets('animal with an unresolved update cannot be edited again', (
+    tester,
+  ) async {
+    final domain = InMemoryDomainStore();
+    await _installLivestockSnapshot(domain);
+    final outbox = InMemoryOutboxStore();
+    final scope = FarmlyMutationScope.farm(
+      accountId: _accountId,
+      organizationId: _organizationId,
+      farmId: _farmId,
+      continuityEpoch: '37',
+    );
+    await _seedAnimalUpdate(
+      outbox: outbox,
+      scope: scope,
+      operationId: '99999999-9999-4999-8999-999999999977',
+      resourceId: _animalId,
+      baseVersion: 1,
+      payload: const {'tag': 'COW-009'},
+      status: OutboxEntryStatus.conflict,
+    );
+    final harness = await _pumpLivestock(
+      tester,
+      scope: _scope(farmRole: FarmlyFarmGrantRole.manager),
+      domain: domain,
+      outbox: outbox,
+    );
+
+    expect(
+      find.byKey(const ValueKey('live-animal-edit-$_animalId')),
+      findsNothing,
+    );
+    expect(
+      await harness.outbox.entries(
+        accountId: _accountId,
+        organizationId: _organizationId,
+      ),
+      hasLength(1),
+    );
+    expect(harness.transport.calls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a newer confirmed animal version rejects a stale edit', (
+    tester,
+  ) async {
+    final domain = InMemoryDomainStore();
+    await _installLivestockSnapshot(domain);
+    final harness = await _pumpLivestock(
+      tester,
+      scope: _scope(farmRole: FarmlyFarmGrantRole.manager),
+      domain: domain,
+    );
+    await _openAnimalEdit(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('live-animal-tag')),
+      'COW-CLIENT',
+    );
+    await _installLivestockSnapshot(
+      domain,
+      animalRecords: const [
+        {
+          'id': _animalId,
+          'version': 2,
+          'herdId': _trackedHerdId,
+          'tag': 'COW-SERVER',
+          'name': 'Mây đã cập nhật',
+          'birthDate': '2022-05-11',
+          'status': 'alive',
+          'archived': false,
+        },
+      ],
+    );
+    harness.container.invalidate(farmlyLiveLivestockProvider);
+    await harness.container.read(farmlyLiveLivestockProvider.future);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('live-animal-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('live-animal-edit-error')),
+      findsOneWidget,
+    );
+    expect(
+      await harness.outbox.entries(
+        accountId: _accountId,
+        organizationId: _organizationId,
+      ),
+      isEmpty,
+    );
+    final collection = await harness.container.read(
+      farmlyLiveLivestockProvider.future,
+    );
+    final animal = collection.herds
+        .singleWhere((row) => row.id == _trackedHerdId)
+        .animals
+        .singleWhere((row) => row.id == _animalId);
+    expect(animal.tag, 'COW-SERVER');
+    expect(animal.name, 'Mây đã cập nhật');
+    expect(harness.transport.calls, 0);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('worker and organization viewer cannot create livestock', (
     tester,

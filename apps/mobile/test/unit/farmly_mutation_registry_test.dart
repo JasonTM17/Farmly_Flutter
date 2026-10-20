@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 const _accountId = '00000000-0000-4000-8000-000000000001';
 const _organizationId = '00000000-0000-4000-8000-000000000002';
 const _farmId = '00000000-0000-4000-8000-000000000003';
+const _animalId = '00000000-0000-4000-8000-000000000004';
 const _operationId = '00000000-0000-4000-8000-000000000101';
 const _taskOccurrenceId = 'd6b616b7-5153-57e6-87cc-2e379ee6a10b';
 const _continuityEpoch = '7';
@@ -68,7 +69,8 @@ Map<String, Object?> _wireIntent(String type) => {
           type == 'cropSpecies.archive' ||
           type == 'waterTank.update' ||
           type == 'planting.update' ||
-          type == 'planting.archive'
+          type == 'planting.archive' ||
+          type == 'animal.update'
       ? 1
       : null,
   'dependsOn': <String>[],
@@ -78,6 +80,7 @@ Map<String, Object?> _wireIntent(String type) => {
     'cropSpecies.update' => <String, Object?>{'name': 'Tomato'},
     'waterTank.update' => <String, Object?>{'name': 'Tank A'},
     'planting.update' => <String, Object?>{'areaM2': '125.5'},
+    'animal.update' => <String, Object?>{'tag': 'COW-002'},
     'herd.create' => <String, Object?>{'mode': 'batch'},
     'animal.create' => <String, Object?>{'herdId': _farmId, 'tag': 'COW-001'},
     'moistureReading.create' => <String, Object?>{
@@ -184,6 +187,87 @@ void main() {
         throwsArgumentError,
       );
     });
+
+    test('authors and restores an animal update with strict CAS fields', () {
+      final update = FarmlyUpdateAnimalIntent(
+        operationId: _operationId,
+        continuityEpoch: _continuityEpoch,
+        resourceId: _animalId,
+        baseVersion: 7,
+        tag: ' COW-002 ',
+        name: ' Bông ',
+        birthDate: '2023-04-05',
+      );
+
+      expect(update.type, 'animal.update');
+      expect(update.resourceId, _animalId);
+      expect(update.baseVersion, 7);
+      expect(update.payload, {
+        'tag': 'COW-002',
+        'name': 'Bông',
+        'birthDate': '2023-04-05',
+      });
+      final restored = FarmlyMutationIntent.fromJson(
+        Map<String, Object?>.from(
+          jsonDecode(jsonEncode(update.toJson())) as Map,
+        ),
+      );
+      expect(restored.type, 'animal.update');
+      expect(restored.resourceId, _animalId);
+      expect(restored.baseVersion, 7);
+      expect(restored.payload, update.payload);
+
+      expect(
+        () => FarmlyUpdateAnimalIntent(
+          operationId: _operationId,
+          continuityEpoch: _continuityEpoch,
+          resourceId: _animalId,
+          baseVersion: 0,
+          tag: 'COW-002',
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => FarmlyUpdateAnimalIntent(
+          operationId: _operationId,
+          continuityEpoch: _continuityEpoch,
+          resourceId: _animalId,
+          baseVersion: 7,
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test(
+      'animal.update restore rejects missing CAS and immutable or status fields',
+      () {
+        for (final invalid in [
+          {..._wireIntent('animal.update'), 'baseVersion': null},
+          {..._wireIntent('animal.update'), 'baseVersion': 0},
+          {
+            ..._wireIntent('animal.update'),
+            'payload': <String, Object?>{'herdId': _farmId},
+          },
+          {
+            ..._wireIntent('animal.update'),
+            'payload': <String, Object?>{'status': 'sold'},
+          },
+          {
+            ..._wireIntent('animal.update'),
+            'payload': <String, Object?>{'tag': '  '},
+          },
+          {
+            ..._wireIntent('animal.update'),
+            'payload': <String, Object?>{'unknown': 'value'},
+          },
+        ]) {
+          expect(
+            () => FarmlyMutationIntent.fromJson(invalid),
+            throwsFormatException,
+          );
+        }
+      },
+    );
 
     test(
       'rejects malformed farm.update durable payloads and base versions',
@@ -1210,6 +1294,28 @@ void main() {
         );
         expect(restored.toJson(), intent.toJson());
       }
+    });
+
+    test('animal tag normalization matches PostgreSQL btrim exactly', () {
+      final create = FarmlyCreateAnimalIntent(
+        operationId: _operationId,
+        continuityEpoch: _continuityEpoch,
+        resourceId: _animalId,
+        herdId: _farmId,
+        tag: '  COW-ASCII  ',
+      );
+      final update = FarmlyUpdateAnimalIntent(
+        operationId: _operationId,
+        continuityEpoch: _continuityEpoch,
+        resourceId: _animalId,
+        baseVersion: 1,
+        tag: '\tCOW-TAB\t',
+      );
+
+      expect(create.payload['tag'], 'COW-ASCII');
+      expect(update.payload['tag'], '\tCOW-TAB\t');
+      expect(farmlyTrimAnimalTag('  cow-case  '), 'cow-case');
+      expect(farmlyTrimAnimalTag('\t'), '\t');
     });
 
     test('rejects malformed herd and animal creation fields', () {

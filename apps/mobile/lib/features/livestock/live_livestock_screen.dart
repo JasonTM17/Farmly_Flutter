@@ -412,6 +412,13 @@ class _LiveAnimalCard extends StatelessWidget {
       'deceased' => l10n.animalStatusDeceased,
       _ => animal.status,
     };
+    final canEdit =
+        collection.canManageHerds &&
+        herd.mode == 'tracked' &&
+        herd.status == 'active' &&
+        animal.syncState == FarmlyLivestockEntitySyncState.confirmed &&
+        !animal.archived &&
+        !animal.hasUnresolvedUpdate;
     return Container(
       decoration: BoxDecoration(
         color: tokens.surface,
@@ -450,6 +457,14 @@ class _LiveAnimalCard extends StatelessWidget {
                   ],
                 ),
               ),
+              if (canEdit)
+                IconButton(
+                  key: ValueKey('live-animal-edit-${animal.id}'),
+                  tooltip: l10n.liveAnimalEditAction,
+                  onPressed: () =>
+                      _openAnimalEditSheet(context, collection, herd, animal),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
             ],
           ),
           if (animal.productionRecords.isNotEmpty) ...[
@@ -839,6 +854,25 @@ void _openAnimalCreateSheet(
     isScrollControlled: true,
     useSafeArea: true,
     builder: (_) => LiveAnimalCreateSheet(collection: collection, herd: herd),
+  ).then((saved) {
+    if (saved == true && context.mounted) {
+      showFarmToast(context, AppLocalizations.of(context).savedOnDeviceToast);
+    }
+  });
+}
+
+void _openAnimalEditSheet(
+  BuildContext context,
+  FarmlyLiveLivestockCollection collection,
+  FarmlyLiveHerd herd,
+  FarmlyLiveAnimal animal,
+) {
+  showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (_) =>
+        LiveAnimalEditSheet(collection: collection, herd: herd, animal: animal),
   ).then((saved) {
     if (saved == true && context.mounted) {
       showFarmToast(context, AppLocalizations.of(context).savedOnDeviceToast);

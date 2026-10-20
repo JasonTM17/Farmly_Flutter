@@ -6,6 +6,7 @@ import { NestFactory } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { request as httpRequest } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Client } from 'pg';
 
@@ -105,6 +106,35 @@ async function readBody(response) {
   try { return await response.json(); } catch { return null; }
 }
 
+function requestOverIndependentSocket(url, token, method, operation) {
+  const body = JSON.stringify(operation);
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(url, {
+      method,
+      agent: false,
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(body),
+        'idempotency-key': operation.operationId,
+      },
+    }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on('error', reject);
+      response.on('end', () => {
+        const contentType = response.headers['content-type'];
+        resolve(new Response(Buffer.concat(chunks), {
+          status: response.statusCode ?? 500,
+          ...(contentType ? { headers: { 'content-type': String(contentType) } } : {}),
+        }));
+      });
+    });
+    request.on('error', reject);
+    request.end(body);
+  });
+}
+
 async function expectJson(response, status, code) {
   const body = await readBody(response);
   assert(response.status === status, `${code}_STATUS_${response.status}`);
@@ -176,6 +206,82 @@ function assertBatchOutcome(body, operationId, expected, code) {
   assert(result?.outcome === expected, `${code}_OUTCOME_${result?.outcome ?? 'MISSING'}`);
   assert(Object.keys(result).every((key) => ['operationId', 'outcome', 'code'].includes(key)), `${code}_OUTCOME_LEAK`);
   return result;
+}
+
+async function waitForLockWaiters(migration, applicationName, blockingPid, expectedCount) {
+  for (let attempt = 0; attempt < 250; attempt += 1) {
+    await migration.query('SELECT pg_catalog.pg_stat_clear_snapshot()');
+    const result = await migration.query(`
+      WITH RECURSIVE wait_chain(waiting_pid, blocker_pid, seen_pids) AS (
+        SELECT activity.pid,
+               blocker.blocker_pid,
+               ARRAY[activity.pid, blocker.blocker_pid]::INTEGER[]
+        FROM pg_catalog.pg_stat_activity AS activity
+        CROSS JOIN LATERAL unnest(pg_catalog.pg_blocking_pids(activity.pid)) AS blocker(blocker_pid)
+        WHERE activity.application_name = $1
+        UNION ALL
+        SELECT chain.waiting_pid,
+               blocker.blocker_pid,
+               chain.seen_pids || blocker.blocker_pid
+        FROM wait_chain AS chain
+        CROSS JOIN LATERAL unnest(pg_catalog.pg_blocking_pids(chain.blocker_pid)) AS blocker(blocker_pid)
+        WHERE NOT (blocker.blocker_pid = ANY(chain.seen_pids))
+      )
+      SELECT count(DISTINCT waiting_pid)::INTEGER AS blocked
+      FROM wait_chain
+      WHERE blocker_pid = $2::INTEGER
+    `, [applicationName, blockingPid]);
+    if (result.rows[0]?.blocked >= expectedCount) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  await migration.query('SELECT pg_catalog.pg_stat_clear_snapshot()');
+  const observed = await migration.query(`
+    SELECT count(*) FILTER (WHERE activity.application_name = $1)::INTEGER AS named,
+           count(*) FILTER (
+             WHERE activity.application_name = $1
+               AND activity.wait_event_type = 'Lock'
+           )::INTEGER AS lock_waiters,
+           count(*) FILTER (
+             WHERE activity.application_name = $1
+               AND activity.state = 'idle'
+           )::INTEGER AS idle,
+           count(*) FILTER (
+             WHERE activity.application_name = $1
+               AND activity.wait_event_type IS NOT NULL
+               AND activity.wait_event_type <> 'Lock'
+           )::INTEGER AS other_waiters,
+           count(*) FILTER (
+             WHERE activity.application_name = $1
+               AND $2::INTEGER = ANY(pg_catalog.pg_blocking_pids(activity.pid))
+           )::INTEGER AS blocked_by_holder
+      FROM pg_catalog.pg_stat_activity AS activity
+  `, [applicationName, blockingPid]);
+  const stats = observed.rows[0] ?? {};
+  const sessions = await migration.query(`
+    SELECT activity.pid::INTEGER AS pid,
+           activity.state::TEXT AS state,
+           activity.wait_event_type::TEXT AS wait_event_type,
+           activity.wait_event::TEXT AS wait_event,
+           pg_catalog.pg_blocking_pids(activity.pid) AS blocking_pids
+    FROM pg_catalog.pg_stat_activity AS activity
+    WHERE activity.application_name = $1
+    ORDER BY activity.pid
+  `, [applicationName]);
+  process.stderr.write(`${JSON.stringify({
+    raceBarrierSessions: sessions.rows.map((session) => ({
+      pid: session.pid,
+      state: session.state,
+      waitEventType: session.wait_event_type,
+      waitEvent: session.wait_event,
+      blockingPids: session.blocking_pids,
+    })),
+  })}\n`);
+  throw Object.assign(
+    new Error('ANIMAL_TAG_CONCURRENT_LOCK_WAIT_NOT_OBSERVED'),
+    {
+      code: `ANIMAL_TAG_CONCURRENT_LOCK_WAIT_NOT_OBSERVED_N${stats.named ?? 0}_L${stats.lock_waiters ?? 0}_B${stats.blocked_by_holder ?? 0}_I${stats.idle ?? 0}_W${stats.other_waiters ?? 0}`,
+    },
+  );
 }
 
 // ---- immutable intent builders (farm-mutation.v1 envelope, spec04 §5.1) ----
@@ -533,6 +639,10 @@ async function main() {
     const domainList = (token, orgId, farmId, slug) => fetch(
       `${farmBase(orgId, farmId)}/${slug}`, { headers: httpHeaders(token) },
     );
+    const operationStatuses = (token, operationIds) => fetch(
+      `${origin}/v1/me/operation-status?operationIds=${operationIds.join(',')}`,
+      { headers: httpHeaders(token) },
+    );
 
     stage('setup-create-fixture-farms-via-org-kernel');
     const farmIntents = {};
@@ -620,6 +730,54 @@ async function main() {
       assert(counts.applied_proofs === 0 && counts.changes === 0 && counts.audits === 0, `${code}_PARTIAL_MUTATION`);
       assert(counts.policy_version === policyBefore, `${code}_POLICY_VERSION_CHANGED`);
       assert(counts.clock_revision === null || BigInt(counts.clock_revision) === revisionBefore, `${code}_CLOCK_REVISION_CHANGED`);
+    };
+    const expectDurableFieldValidation = async ({
+      response,
+      replay,
+      operation,
+      farmId,
+      policyBefore,
+      revisionBefore,
+      code,
+    }) => {
+      const body = await expectJson(response, 200, `${code}_RESPONSE`);
+      const result = body?.data;
+      assert(result?.operationId === operation.operationId, `${code}_OPERATION_ID_MISMATCH`);
+      assert(result?.outcome === 'rejected', `${code}_OUTCOME_${result?.outcome ?? 'MISSING'}`);
+      assert(result?.code === 'FIELD_VALIDATION_FAILED', `${code}_CODE_${result?.code ?? 'MISSING'}`);
+
+      const replayBody = await readBody(await replay());
+      assert(replayBody?.data?.operationId === operation.operationId, `${code}_REPLAY_OPERATION_ID_MISMATCH`);
+      assert(replayBody?.data?.outcome === 'rejected', `${code}_REPLAY_OUTCOME_${replayBody?.data?.outcome ?? 'MISSING'}`);
+      assert(replayBody?.data?.code === result.code, `${code}_REPLAY_CODE_CHANGED`);
+      assert(replayBody?.data?.revision === result.revision, `${code}_REPLAY_REVISION_CHANGED`);
+
+      const statusBody = await readBody(await operationStatuses(owner.token, [operation.operationId]));
+      const status = statusBody?.data?.operations?.find((item) => item.operationId === operation.operationId);
+      assert(status?.outcome === 'rejected', `${code}_STATUS_${status?.outcome ?? 'MISSING'}`);
+
+      const proof = await migration.query(`
+        SELECT outcome::TEXT AS outcome, result_code::TEXT AS result_code
+        FROM public.applied_operations
+        WHERE organization_id = $1::uuid AND operation_id = $2::uuid
+      `, [organizationId, operation.operationId]);
+      assert(proof.rows.length === 1, `${code}_PROOF_COUNT_${proof.rows.length}`);
+      assert(proof.rows[0]?.outcome === 'rejected'
+        && proof.rows[0]?.result_code === 'FIELD_VALIDATION_FAILED', `${code}_PROOF_INVALID`);
+      const cache = await migration.query(`
+        SELECT count(*)::INTEGER AS count
+        FROM public.operation_response_cache
+        WHERE organization_id = $1::uuid AND operation_id = $2::uuid
+      `, [organizationId, operation.operationId]);
+      assert(cache.rows[0]?.count === 1, `${code}_RESPONSE_CACHE_COUNT_${cache.rows[0]?.count}`);
+
+      const counts = await domainCounts(organizationId, farmId, operation.operationId);
+      assert(counts.applied_proofs === 0 && counts.rejected_proofs === 1
+        && counts.changes === 0 && counts.audits === 0, `${code}_DURABLE_REJECTION_PARTIAL_MUTATION`);
+      assert(counts.policy_version === policyBefore, `${code}_POLICY_VERSION_CHANGED`);
+      assert(counts.clock_revision === null || BigInt(counts.clock_revision) === revisionBefore,
+        `${code}_CLOCK_REVISION_CHANGED`);
+      return result;
     };
     const expectDomainApplied = async (farmId, operationId, policyBefore, code) => {
       const counts = await domainCounts(organizationId, farmId, operationId);
@@ -915,6 +1073,327 @@ async function main() {
         await expectNoDomainMutation(farmAId, op.operationId, policyBefore, revisionBefore, `${tag}_WRITE_AFTER_ARCHIVE`);
       });
     }
+
+    // ---- animal tag identity is farm-local, trimmed, case-sensitive, and
+    // retained by archived rows (decision: btrim(tag), no case folding) ----
+    stage('animal-tag-uniqueness-and-canonicalization');
+    const createTaggedAnimal = async ({ farmId, herdId, tag, code }) => {
+      const animalId = randomUUID();
+      const op = intent('animal.create', animalId, { herdId, tag }, farmEpochs.get(farmId));
+      const policyBefore = await policyVersion();
+      const response = await domainCreate(owner.token, organizationId, farmId, 'animals', op);
+      const { view } = await applyDomainIntent(response, op.operationId, 'animal', farmId, code);
+      assert(view.tag === tag.trim(), `${code}_TAG_NOT_BTRIMMED`);
+      assert(view.id === animalId && view.version === 1, `${code}_VIEW_INVALID`);
+      await expectDomainApplied(farmId, op.operationId, policyBefore, code);
+      versions.set(animalId, 1);
+      return { animalId, operation: op, view };
+    };
+
+    await check('ANIMAL_TAG_FARM_LOCAL_TRIM_ONLY_CASE_SENSITIVE', async () => {
+      const canonicalTag = `Case-${s8()}`;
+      const first = await createTaggedAnimal({
+        farmId: farmAId,
+        herdId: ids.herdTrackedAId,
+        tag: `  ${canonicalTag}  `,
+        code: 'ANIMAL_TAG_PADDED_CREATE',
+      });
+      assert(first.view.tag === canonicalTag, 'ANIMAL_TAG_PADDED_VALUE_NOT_TRIMMED');
+
+      const lowerCaseTag = canonicalTag.toLowerCase();
+      assert(lowerCaseTag !== canonicalTag, 'ANIMAL_TAG_CASE_FIXTURE_INVALID');
+      const lowerCase = await createTaggedAnimal({
+        farmId: farmAId,
+        herdId: ids.herdTrackedAId,
+        tag: lowerCaseTag,
+        code: 'ANIMAL_TAG_CASE_VARIANT_CREATE',
+      });
+      assert(lowerCase.view.tag === lowerCaseTag, 'ANIMAL_TAG_CASE_WAS_FOLDED');
+
+      const otherFarm = await createTaggedAnimal({
+        farmId: farmBId,
+        herdId: ids.herdBId,
+        tag: canonicalTag,
+        code: 'ANIMAL_TAG_SAME_VALUE_OTHER_FARM',
+      });
+      assert(otherFarm.view.tag === first.view.tag, 'ANIMAL_TAG_OTHER_FARM_VALUE_CHANGED');
+
+      const duplicate = intent(
+        'animal.create',
+        randomUUID(),
+        { herdId: ids.herdTrackedAId, tag: ` ${canonicalTag} ` },
+        epoch,
+      );
+      const policyBefore = await policyVersion();
+      const revisionBefore = farmRevisions.get(farmAId);
+      const response = await domainCreate(owner.token, organizationId, farmAId, 'animals', duplicate);
+      await expectDurableFieldValidation({
+        response,
+        replay: () => domainCreate(owner.token, organizationId, farmAId, 'animals', duplicate),
+        operation: duplicate,
+        farmId: farmAId,
+        policyBefore,
+        revisionBefore,
+        code: 'ANIMAL_TAG_TRIMMED_DUPLICATE_CREATE',
+      });
+    });
+
+    await check('ANIMAL_TAG_DUPLICATE_CREATE_DURABLE_REJECTION', async () => {
+      const tag = `Create-duplicate-${s8()}`;
+      await createTaggedAnimal({
+        farmId: farmAId,
+        herdId: ids.herdTrackedAId,
+        tag,
+        code: 'ANIMAL_DUPLICATE_CREATE_ORIGINAL',
+      });
+      const duplicate = intent(
+        'animal.create',
+        randomUUID(),
+        { herdId: ids.herdTrackedAId, tag },
+        epoch,
+      );
+      const policyBefore = await policyVersion();
+      const revisionBefore = farmRevisions.get(farmAId);
+      const response = await domainCreate(owner.token, organizationId, farmAId, 'animals', duplicate);
+      await expectDurableFieldValidation({
+        response,
+        replay: () => domainCreate(owner.token, organizationId, farmAId, 'animals', duplicate),
+        operation: duplicate,
+        farmId: farmAId,
+        policyBefore,
+        revisionBefore,
+        code: 'ANIMAL_TAG_DUPLICATE_CREATE',
+      });
+    });
+
+    await check('ANIMAL_TAG_DUPLICATE_UPDATE_DURABLE_REJECTION', async () => {
+      const suffix = s8();
+      const target = await createTaggedAnimal({
+        farmId: farmAId,
+        herdId: ids.herdTrackedAId,
+        tag: `Update-target-${suffix}`,
+        code: 'ANIMAL_TAG_UPDATE_TARGET',
+      });
+      const occupied = await createTaggedAnimal({
+        farmId: farmAId,
+        herdId: ids.herdTrackedAId,
+        tag: `Update-occupied-${suffix}`,
+        code: 'ANIMAL_TAG_UPDATE_OCCUPIED',
+      });
+      const update = intent(
+        'animal.update',
+        target.animalId,
+        { tag: occupied.view.tag },
+        epoch,
+        { baseVersion: 1 },
+      );
+      const policyBefore = await policyVersion();
+      const revisionBefore = farmRevisions.get(farmAId);
+      const response = await domainUpdate(
+        owner.token,
+        organizationId,
+        farmAId,
+        'animals',
+        target.animalId,
+        update,
+      );
+      await expectDurableFieldValidation({
+        response,
+        replay: () => domainUpdate(
+          owner.token,
+          organizationId,
+          farmAId,
+          'animals',
+          target.animalId,
+          update,
+        ),
+        operation: update,
+        farmId: farmAId,
+        policyBefore,
+        revisionBefore,
+        code: 'ANIMAL_TAG_DUPLICATE_UPDATE',
+      });
+      const unchanged = await listEntry(
+        owner.token,
+        organizationId,
+        farmAId,
+        'animals',
+        'animals',
+        target.animalId,
+        'ANIMAL_TAG_UPDATE_UNCHANGED',
+      );
+      assert(unchanged?.tag === target.view.tag, 'ANIMAL_TAG_UPDATE_REJECTION_CHANGED_TARGET');
+    });
+
+    await check('ANIMAL_ARCHIVE_RETAINS_TAG_UNIQUENESS', async () => {
+      const tag = `Archived-tag-${s8()}`;
+      const archivedAnimal = await createTaggedAnimal({
+        farmId: farmAId,
+        herdId: ids.herdTrackedAId,
+        tag,
+        code: 'ANIMAL_TAG_ARCHIVE_TARGET',
+      });
+      const archive = intent('animal.archive', archivedAnimal.animalId, {}, epoch, { baseVersion: 1 });
+      const policyBeforeArchive = await policyVersion();
+      const archiveResponse = await domainArchive(
+        owner.token,
+        organizationId,
+        farmAId,
+        'animals',
+        archivedAnimal.animalId,
+        archive,
+      );
+      const { view } = await applyDomainIntent(
+        archiveResponse,
+        archive.operationId,
+        'animal',
+        farmAId,
+        'ANIMAL_TAG_ARCHIVE_TARGET',
+      );
+      assert(view.archived === true && view.tag === tag, 'ANIMAL_TAG_ARCHIVE_VIEW_INVALID');
+      await expectDomainApplied(farmAId, archive.operationId, policyBeforeArchive, 'ANIMAL_TAG_ARCHIVE_TARGET');
+
+      const duplicate = intent(
+        'animal.create',
+        randomUUID(),
+        { herdId: ids.herdTrackedAId, tag },
+        epoch,
+      );
+      const policyBefore = await policyVersion();
+      const revisionBefore = farmRevisions.get(farmAId);
+      const response = await domainCreate(owner.token, organizationId, farmAId, 'animals', duplicate);
+      await expectDurableFieldValidation({
+        response,
+        replay: () => domainCreate(owner.token, organizationId, farmAId, 'animals', duplicate),
+        operation: duplicate,
+        farmId: farmAId,
+        policyBefore,
+        revisionBefore,
+        code: 'ANIMAL_TAG_ARCHIVE_REUSE',
+      });
+    });
+
+    await check('ANIMAL_TAG_CONCURRENT_CREATE_UPDATE_ONE_APPLIES_ONE_REJECTS', async () => {
+      const suffix = s8();
+      const target = await createTaggedAnimal({
+        farmId: farmAId,
+        herdId: ids.herdTrackedAId,
+        tag: `Concurrent-target-${suffix}`,
+        code: 'ANIMAL_TAG_CONCURRENT_TARGET',
+      });
+      const sharedTag = `Concurrent-shared-${suffix}`;
+      const create = intent(
+        'animal.create',
+        randomUUID(),
+        { herdId: ids.herdTrackedAId, tag: sharedTag },
+        epoch,
+      );
+      const update = intent(
+        'animal.update',
+        target.animalId,
+        { tag: sharedTag },
+        epoch,
+        { baseVersion: 1 },
+      );
+      const expectedRevision = farmRevisions.get(farmAId);
+      const policyBefore = await policyVersion();
+      let transactionOpen = false;
+      let requests = [];
+      try {
+        await migration.query('BEGIN');
+        transactionOpen = true;
+        const pid = await migration.query('SELECT pg_backend_pid()::INTEGER AS pid');
+        await migration.query(
+          'SELECT id FROM public.organizations WHERE id = $1::uuid FOR UPDATE',
+          [organizationId],
+        );
+        requests = [
+          requestOverIndependentSocket(
+            `${farmBase(organizationId, farmAId)}/animals`,
+            owner.token,
+            'POST',
+            create,
+          ),
+          requestOverIndependentSocket(
+            `${farmBase(organizationId, farmAId)}/animals/${target.animalId}`,
+            owner.token,
+            'PATCH',
+            update,
+          ),
+        ];
+        await waitForLockWaiters(migration, httpApplicationName, pid.rows[0].pid, 2);
+        await migration.query('COMMIT');
+        transactionOpen = false;
+
+        const responses = await Promise.all(requests);
+        const bodies = await Promise.all(responses.map((response) => readBody(response.clone())));
+        const appliedIndexes = bodies
+          .map((body, index) => body?.data?.outcome === 'applied' ? index : -1)
+          .filter((index) => index >= 0);
+        const rejectedIndexes = bodies
+          .map((body, index) => body?.data?.outcome === 'rejected' ? index : -1)
+          .filter((index) => index >= 0);
+        assert(appliedIndexes.length === 1, `ANIMAL_TAG_RACE_APPLIED_COUNT_${appliedIndexes.length}`);
+        assert(rejectedIndexes.length === 1, `ANIMAL_TAG_RACE_REJECTED_COUNT_${rejectedIndexes.length}`);
+        for (const index of [0, 1]) {
+          assert(responses[index].status === 200, `ANIMAL_TAG_RACE_HTTP_${index}_${responses[index].status}`);
+        }
+
+        const appliedIndex = appliedIndexes[0];
+        const appliedOperation = appliedIndex === 0 ? create : update;
+        const appliedResource = appliedIndex === 0 ? 'animal' : 'animal';
+        const { view } = await applyDomainIntent(
+          responses[appliedIndex],
+          appliedOperation.operationId,
+          appliedResource,
+          farmAId,
+          'ANIMAL_TAG_RACE_WINNER',
+        );
+        assert(view.tag === sharedTag, 'ANIMAL_TAG_RACE_WINNER_TAG_INVALID');
+        await expectDomainApplied(farmAId, appliedOperation.operationId, policyBefore, 'ANIMAL_TAG_RACE_WINNER');
+
+        const rejectedIndex = rejectedIndexes[0];
+        const rejectedOperation = rejectedIndex === 0 ? create : update;
+        const rejectedBody = bodies[rejectedIndex];
+        assert(rejectedBody?.data?.operationId === rejectedOperation.operationId,
+          'ANIMAL_TAG_RACE_REJECTION_OPERATION_ID_MISMATCH');
+        assert(rejectedBody?.data?.code === 'FIELD_VALIDATION_FAILED',
+          `ANIMAL_TAG_RACE_REJECTION_CODE_${rejectedBody?.data?.code ?? 'MISSING'}`);
+        const statusBody = await readBody(
+          await operationStatuses(owner.token, [create.operationId, update.operationId]),
+        );
+        const statuses = new Map(
+          (statusBody?.data?.operations ?? []).map((item) => [item.operationId, item.outcome]),
+        );
+        assert(statuses.get(appliedOperation.operationId) === 'applied', 'ANIMAL_TAG_RACE_WINNER_STATUS_INVALID');
+        assert(statuses.get(rejectedOperation.operationId) === 'rejected', 'ANIMAL_TAG_RACE_LOSER_STATUS_INVALID');
+
+        const rejectedProof = await migration.query(`
+          SELECT outcome::TEXT AS outcome, result_code::TEXT AS result_code
+          FROM public.applied_operations
+          WHERE organization_id = $1::uuid AND operation_id = $2::uuid
+        `, [organizationId, rejectedOperation.operationId]);
+        assert(rejectedProof.rows.length === 1
+          && rejectedProof.rows[0]?.outcome === 'rejected'
+          && rejectedProof.rows[0]?.result_code === 'FIELD_VALIDATION_FAILED',
+        'ANIMAL_TAG_RACE_REJECTED_PROOF_INVALID');
+        const rejectedCounts = await domainCounts(organizationId, farmAId, rejectedOperation.operationId);
+        assert(rejectedCounts.applied_proofs === 0 && rejectedCounts.rejected_proofs === 1
+          && rejectedCounts.changes === 0 && rejectedCounts.audits === 0,
+        'ANIMAL_TAG_RACE_REJECTED_PARTIAL_MUTATION');
+        assert(rejectedCounts.policy_version === policyBefore, 'ANIMAL_TAG_RACE_POLICY_CHANGED');
+        assert(BigInt(rejectedCounts.clock_revision) === expectedRevision + 1n,
+          'ANIMAL_TAG_RACE_REJECTED_ADVANCED_CLOCK');
+        const tagRows = await migration.query(`
+          SELECT id::TEXT AS id FROM public.animals
+          WHERE organization_id = $1::uuid AND farm_id = $2::uuid AND tag = btrim($3)
+        `, [organizationId, farmAId, sharedTag]);
+        assert(tagRows.rows.length === 1, `ANIMAL_TAG_RACE_DUPLICATE_ROWS_${tagRows.rows.length}`);
+      } finally {
+        if (transactionOpen) await migration.query('ROLLBACK').catch(() => {});
+        if (requests.length > 0) await Promise.allSettled(requests);
+      }
+    });
 
     // ---- effective-role matrix on zone writes (spec01 §3/§7 allowlist) ----
     stage('domain-write-role-matrix');

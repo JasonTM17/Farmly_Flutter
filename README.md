@@ -155,7 +155,9 @@ live only in the migration process. See `apps/api` scripts for the ordered
 migration chain (`migrate:auth` → `migrate:tenant` → `migrate:rls` → …),
 including `migrate:farm-iana-timezone-guard` for durable server-side validation
 of farm timezone writes and `migrate:task-schedule-rules` for weekly task-day
-requirements and unmaterialized occurrence schedule enforcement.
+requirements and unmaterialized occurrence schedule enforcement. The
+`migrate:animal-tag-uniqueness` migration installs farm-local, trimmed,
+case-sensitive animal tag uniqueness after a fail-closed duplicate preflight.
 
 ### Mobile
 
