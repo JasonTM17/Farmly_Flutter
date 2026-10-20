@@ -328,7 +328,12 @@ void main() {
   testWidgets('ambient loop keeps a finite still phase for sub-step periods', (
     tester,
   ) async {
-    for (final period in [Duration.zero, const Duration(milliseconds: 8)]) {
+    for (final period in [
+      Duration.zero,
+      const Duration(milliseconds: 8),
+      const Duration(milliseconds: 12),
+      const Duration(milliseconds: 24),
+    ]) {
       var phase = double.nan;
       await tester.pumpWidget(
         MaterialApp(
@@ -348,6 +353,7 @@ void main() {
 
       expect(phase, 0);
       expect(phase.isFinite, isTrue);
+      expect(tester.binding.transientCallbackCount, 0);
       expect(tester.takeException(), isNull);
     }
   });
@@ -373,11 +379,37 @@ void main() {
     await tester.pump(const Duration(milliseconds: 17));
     expect(phase, closeTo(1 / 60, 0.001));
 
-    period = const Duration(milliseconds: 8);
+    period = const Duration(milliseconds: 12);
     await tester.pumpWidget(harness());
     await tester.pump(const Duration(seconds: 1));
 
     expect(phase, 0);
+    expect(tester.binding.transientCallbackCount, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('smallest moving ambient period advances at 60Hz', (
+    tester,
+  ) async {
+    var phase = 0.0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FarmAmbientLoop(
+            period: const Duration(milliseconds: 25),
+            builder: (context, value) {
+              phase = value;
+              return const SizedBox.expand();
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump(const Duration(milliseconds: 17));
+
+    expect(phase, closeTo(0.5, 0.001));
+    expect(tester.binding.transientCallbackCount, 1);
     expect(tester.takeException(), isNull);
   });
 
@@ -411,6 +443,54 @@ void main() {
     await tester.pumpWidget(harness(reducedMotion: false));
     await tester.pump();
 
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dust puff restarts its pending delay after reduced motion', (
+    tester,
+  ) async {
+    Widget harness({required bool reducedMotion}) => MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(disableAnimations: reducedMotion),
+        child: child ?? const SizedBox.shrink(),
+      ),
+      home: const Scaffold(
+        body: SizedBox(
+          width: 48,
+          height: 24,
+          child: FarmDustPuff(delay: Duration(milliseconds: 100)),
+        ),
+      ),
+    );
+
+    double animationValue() =>
+        (tester
+                    .widget<AnimatedBuilder>(
+                      find.descendant(
+                        of: find.byType(FarmDustPuff),
+                        matching: find.byType(AnimatedBuilder),
+                      ),
+                    )
+                    .animation
+                as Animation<double>)
+            .value;
+
+    await tester.pumpWidget(harness(reducedMotion: false));
+    await tester.pump(const Duration(milliseconds: 40));
+    expect(animationValue(), 0);
+
+    await tester.pumpWidget(harness(reducedMotion: true));
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.pumpWidget(harness(reducedMotion: false));
+    await tester.pump(const Duration(milliseconds: 40));
+
+    // The first delay would have expired now if reduced motion had not
+    // canceled it; the resumed puff must wait for a fresh full delay.
+    expect(animationValue(), 0);
+
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.pump(const Duration(milliseconds: 17));
+    expect(animationValue(), greaterThan(0));
     expect(tester.takeException(), isNull);
   });
 

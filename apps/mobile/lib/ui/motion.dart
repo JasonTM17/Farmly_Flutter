@@ -105,7 +105,7 @@ class _FarmAmbientLoopState extends State<FarmAmbientLoop>
           .round();
 
   bool get _hasValidPeriod =>
-      widget.period > Duration.zero && _phaseStepCount > 0;
+      widget.period > Duration.zero && _phaseStepCount > 1;
 
   AnimationController _createController() =>
       AnimationController(vsync: this, duration: widget.period)
