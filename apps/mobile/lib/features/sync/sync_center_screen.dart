@@ -114,7 +114,7 @@ class _SyncContent extends ConsumerWidget {
               padding: const EdgeInsets.only(bottom: FarmSpacing.md),
               child: item.status == DemoSyncStatus.conflict
                   ? _ConflictCard(item: item)
-                  : _PendingCard(item: item),
+                  : _PendingCard(item: item, offline: offline),
             ),
           const SizedBox(height: FarmSpacing.md),
         ],
@@ -167,18 +167,29 @@ class _LiveSyncSection extends ConsumerWidget {
                 Text(
                   '${AppLocalizations.of(context).pendingCountLabel(status?.pendingCount ?? 0)}'
                   '${status != null && status.blockedCount > 0 ? AppLocalizations.of(context).blockedCountSuffix(status.blockedCount) : ''}'
-                  '${status != null && status.conflictCount > 0 ? AppLocalizations.of(context).conflictCountSuffix(status.conflictCount) : ''}',
+                  '${status != null && status.conflictCount > 0 ? AppLocalizations.of(context).conflictCountSuffix(status.conflictCount) : ''}'
+                  '${status != null && status.rejectedCount > 0 ? AppLocalizations.of(context).rejectedCountSuffix(status.rejectedCount) : ''}',
                   style: Theme.of(context).textTheme.bodyMedium,
                   softWrap: true,
                 ),
-                if (status?.lastError != null)
+                if (status?.lastErrorKind != null)
                   Text(
-                    AppLocalizations.of(context).lastErrorLabel(status!.lastError!),
+                    _syncFailureLabel(l10n, status!.lastErrorKind!),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: tokens.textSecondary,
                     ),
                     softWrap: true,
                   ),
+                if (status != null && status.operations.isNotEmpty) ...[
+                  const Divider(height: FarmSpacing.lg),
+                  Text(
+                    l10n.syncRecentOperationsLabel,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  const SizedBox(height: FarmSpacing.xs),
+                  for (final operation in status.operations)
+                    _LiveOutboxStatusRow(operation: operation),
+                ],
                 Align(
                   alignment: Alignment.centerLeft,
                   child: TextButton.icon(
@@ -254,18 +265,143 @@ class _LiveSyncSection extends ConsumerWidget {
   }
 }
 
+String _syncFailureLabel(AppLocalizations l10n, SyncStatusFailureKind kind) =>
+    switch (kind) {
+      SyncStatusFailureKind.authenticationRequired =>
+        l10n.syncAuthenticationRequired,
+      SyncStatusFailureKind.permissionDenied => l10n.syncPermissionDenied,
+      SyncStatusFailureKind.serviceUnavailable => l10n.syncServerUnavailable,
+      SyncStatusFailureKind.syncConflict => l10n.syncFailureConflict,
+      SyncStatusFailureKind.refreshRequired => l10n.syncRefreshRequired,
+      SyncStatusFailureKind.unknown => l10n.syncUnknownFailure,
+    };
+
+class _LiveOutboxStatusRow extends StatelessWidget {
+  const _LiveOutboxStatusRow({required this.operation});
+
+  final SyncOutboxStatus operation;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final tokens = FarmThemeExtension.of(context);
+    final category = switch (operation.category) {
+      SyncOperationCategory.farm => l10n.syncOperationFarm,
+      SyncOperationCategory.zone => l10n.syncOperationZone,
+      SyncOperationCategory.crop => l10n.syncOperationCrop,
+      SyncOperationCategory.livestock => l10n.syncOperationLivestock,
+      SyncOperationCategory.task => l10n.syncOperationTask,
+      SyncOperationCategory.harvest => l10n.syncOperationHarvest,
+      SyncOperationCategory.water => l10n.syncOperationWater,
+      SyncOperationCategory.general => l10n.syncOperationGeneral,
+    };
+    final status = switch (operation.state) {
+      SyncOutboxState.synced => l10n.syncSynced,
+      SyncOutboxState.savedOnDevice => l10n.syncSavedOnDeviceStatus,
+      SyncOutboxState.checkingServerResult => l10n.syncCheckingServerResult,
+      SyncOutboxState.outcomeUnknown => l10n.syncOutcomeUnknown,
+      SyncOutboxState.dependencyMissing => l10n.syncDependencyMissing,
+      SyncOutboxState.dependencyCycle => l10n.syncDependencyCycle,
+      SyncOutboxState.dependencyFailed => l10n.syncDependencyFailed,
+      SyncOutboxState.dependencyBlocked => l10n.syncDependencyBlocked,
+      SyncOutboxState.dependencyNeedsAttention =>
+        l10n.syncDependencyNeedsAttention,
+      SyncOutboxState.conflictNeedsReview => l10n.syncConflictNeedsReview,
+      SyncOutboxState.rejectedPermission => l10n.syncPermissionDenied,
+      SyncOutboxState.rejectedValidation => l10n.syncRejectedValidation,
+      SyncOutboxState.rejectedNeedsReview => l10n.syncRejectedNeedsReview,
+    };
+    final reference = operation.operationId.length > 8
+        ? operation.operationId.substring(operation.operationId.length - 8)
+        : operation.operationId;
+
+    return Semantics(
+      container: true,
+      label: '$category. $status. ${l10n.syncOperationReference(reference)}',
+      child: ExcludeSemantics(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: FarmSpacing.xs),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                _statusIcon(operation.state),
+                size: 18,
+                color: _statusColor(operation.state, tokens),
+              ),
+              const SizedBox(width: FarmSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(category, style: Theme.of(context).textTheme.labelLarge),
+                    Text(status, style: Theme.of(context).textTheme.bodySmall),
+                    Text(
+                      l10n.syncOperationReference(reference),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: tokens.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _statusIcon(SyncOutboxState state) => switch (state) {
+    SyncOutboxState.synced => Icons.cloud_done_outlined,
+    SyncOutboxState.savedOnDevice => Icons.phone_android_outlined,
+    SyncOutboxState.checkingServerResult || SyncOutboxState.outcomeUnknown =>
+      Icons.sync,
+    SyncOutboxState.conflictNeedsReview => Icons.compare_arrows,
+    SyncOutboxState.rejectedPermission => Icons.lock_outline,
+    SyncOutboxState.rejectedValidation ||
+    SyncOutboxState.rejectedNeedsReview ||
+    SyncOutboxState.dependencyMissing ||
+    SyncOutboxState.dependencyCycle ||
+    SyncOutboxState.dependencyFailed ||
+    SyncOutboxState.dependencyBlocked ||
+    SyncOutboxState.dependencyNeedsAttention => Icons.sync_problem_outlined,
+  };
+
+  Color _statusColor(SyncOutboxState state, FarmThemeExtension tokens) =>
+      switch (state) {
+        SyncOutboxState.synced || SyncOutboxState.savedOnDevice =>
+          tokens.brandAction,
+        SyncOutboxState.checkingServerResult ||
+        SyncOutboxState.outcomeUnknown => tokens.textSecondary,
+        SyncOutboxState.conflictNeedsReview => tokens.semanticWarning,
+        SyncOutboxState.rejectedPermission ||
+        SyncOutboxState.rejectedValidation ||
+        SyncOutboxState.rejectedNeedsReview ||
+        SyncOutboxState.dependencyMissing ||
+        SyncOutboxState.dependencyCycle ||
+        SyncOutboxState.dependencyFailed ||
+        SyncOutboxState.dependencyBlocked ||
+        SyncOutboxState.dependencyNeedsAttention => tokens.semanticError,
+      };
+}
+
 class _PendingCard extends ConsumerWidget {
-  const _PendingCard({required this.item});
+  const _PendingCard({required this.item, required this.offline});
 
   final DemoSyncItem item;
+  final bool offline;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = FarmThemeExtension.of(context);
     final l10n = AppLocalizations.of(context);
-    final waiting = item.status == DemoSyncStatus.syncing
-        ? l10n.syncingShort
-        : l10n.waitingNetwork;
+    final waiting = switch (item.status) {
+      DemoSyncStatus.syncing => l10n.syncingShort,
+      DemoSyncStatus.localPending =>
+        offline ? l10n.waitingNetwork : l10n.syncSavedOnDeviceStatus,
+      DemoSyncStatus.conflict => l10n.conflictLabel,
+    };
     return FarmCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -291,13 +427,22 @@ class _PendingCard extends ConsumerWidget {
           ),
           const SizedBox(height: FarmSpacing.xs),
           Text(item.localSummary, style: Theme.of(context).textTheme.bodyMedium, softWrap: true),
-          Text(
-            '${item.updatedLabel} · ${AppLocalizations.of(context).savedOnDeviceSuffix}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: tokens.textSecondary,
+          if (item.status == DemoSyncStatus.localPending && offline)
+            Text(
+              l10n.savedOnDeviceSuffix,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: tokens.textSecondary,
+              ),
+              softWrap: true,
+            )
+          else if (item.status == DemoSyncStatus.syncing)
+            Text(
+              item.updatedLabel,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: tokens.textSecondary,
+              ),
+              softWrap: true,
             ),
-            softWrap: true,
-          ),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton(

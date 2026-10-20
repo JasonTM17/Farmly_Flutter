@@ -53,26 +53,74 @@ abstract interface class LocalDomainStore {
     required SyncCursorState cursor,
   });
 
+  /// Read the authenticated domain projection and its cursor as one snapshot.
+  /// `null` means this scope has not completed a bootstrap yet; a non-null
+  /// snapshot with no records for an entity is a confirmed empty result.
+  Future<LocalDomainSnapshot?> snapshotFor(String scopeKey);
+
   Future<SyncCursorState?> cursorFor(String scopeKey);
 
   /// Wipe scope records and cursor (revocation/reset path — caller-owned).
   Future<void> clearScope(String scopeKey);
 }
 
+/// One complete, immutable local projection for a scope. Cursor metadata is
+/// kept beside its records so consumers can reject stale policy/epoch data.
+final class LocalDomainSnapshot {
+  LocalDomainSnapshot({
+    required this.cursor,
+    required Map<String, Map<String, Object?>> records,
+  }) : records = _freezeEntityRecords(records);
+
+  final SyncCursorState cursor;
+  final Map<String, Map<String, Object?>> records;
+
+  Map<String, Object?> recordsFor(String entity) =>
+      records[entity] ?? const <String, Object?>{};
+}
+
+Map<String, Map<String, Object?>> _freezeEntityRecords(
+  Map<String, Map<String, Object?>> records,
+) => Map.unmodifiable({
+  for (final entity in records.entries)
+    entity.key: Map<String, Object?>.unmodifiable({
+      for (final row in entity.value.entries)
+        row.key: _freezeJsonValue(row.value),
+    }),
+});
+
+Object? _freezeJsonValue(Object? value) {
+  if (value is Map) {
+    final frozen = <String, Object?>{};
+    for (final entry in value.entries) {
+      if (entry.key is! String) {
+        throw const FarmlyDomainStoreAuthenticationFailure();
+      }
+      frozen[entry.key as String] = _freezeJsonValue(entry.value);
+    }
+    return Map<String, Object?>.unmodifiable(frozen);
+  }
+  if (value is List) {
+    return List<Object?>.unmodifiable(value.map(_freezeJsonValue));
+  }
+  return value;
+}
+
 /// In-memory reference implementation; also the deterministic test double.
 final class InMemoryDomainStore implements LocalDomainStore {
   /// scopeKey -> entity -> recordId -> record
-  final Map<String, Map<String, Map<String, Map<String, Object?>>>> _records = {};
+  final Map<String, Map<String, Map<String, Map<String, Object?>>>> _records =
+      {};
   final Map<String, SyncCursorState> _cursors = {};
 
   Map<String, Map<String, Object?>> recordsOf(String scopeKey, String entity) =>
       Map.unmodifiable(_records[scopeKey]?[entity] ?? const {});
 
   int get recordCount => _records.values.fold(
-        0,
-        (sum, entities) =>
-            sum + entities.values.fold(0, (s, rows) => s + rows.length),
-      );
+    0,
+    (sum, entities) =>
+        sum + entities.values.fold(0, (s, rows) => s + rows.length),
+  );
 
   @override
   Future<void> installBootstrap({
@@ -103,8 +151,9 @@ final class InMemoryDomainStore implements LocalDomainStore {
       switch (change.change) {
         case 'upsert':
           final table = entities.putIfAbsent(change.entity, () => {});
-          table[_recordKey(change.entity, change.record)] =
-              Map.unmodifiable(change.record);
+          table[_recordKey(change.entity, change.record)] = Map.unmodifiable(
+            change.record,
+          );
         default:
           throw UnsupportedChangeError(change.change);
       }
@@ -113,7 +162,24 @@ final class InMemoryDomainStore implements LocalDomainStore {
   }
 
   @override
-  Future<SyncCursorState?> cursorFor(String scopeKey) async => _cursors[scopeKey];
+  Future<SyncCursorState?> cursorFor(String scopeKey) async =>
+      _cursors[scopeKey];
+
+  @override
+  Future<LocalDomainSnapshot?> snapshotFor(String scopeKey) async {
+    final cursor = _cursors[scopeKey];
+    if (cursor == null) return null;
+    final entities = _records[scopeKey] ?? const {};
+    return LocalDomainSnapshot(
+      cursor: cursor,
+      records: {
+        for (final entity in entities.entries)
+          entity.key: {
+            for (final row in entity.value.entries) row.key: row.value,
+          },
+      },
+    );
+  }
 
   @override
   Future<void> clearScope(String scopeKey) async {
@@ -149,10 +215,8 @@ final class FarmlyDomainStoreAuthenticationFailure implements Exception {
 /// atomically (write-then-rename) so a kill mid-feed cannot corrupt the prior
 /// committed state — the cursor can never run ahead of its records.
 final class EncryptedFileDomainStore implements LocalDomainStore {
-  EncryptedFileDomainStore({
-    required Directory directory,
-    required this._key,
-  }) : _file = File('${directory.path}/farmly-domain.v1.json');
+  EncryptedFileDomainStore({required Directory directory, required this._key})
+    : _file = File('${directory.path}/farmly-domain.v1.json');
 
   static final AesGcm _algorithm = AesGcm.with256bits();
 
@@ -178,20 +242,28 @@ final class EncryptedFileDomainStore implements LocalDomainStore {
 
   Future<void> _ensureLoaded() async {
     if (_loaded) return;
-    _loaded = true;
-    if (!await _file.exists()) return;
+    if (!await _file.exists()) {
+      _loaded = true;
+      return;
+    }
     final raw = await _file.readAsString();
     final document = jsonDecode(raw);
     if (document is! Map || document['version'] != 1) {
       throw const FarmlyDomainStoreAuthenticationFailure();
     }
     final scopes = document['scopes'];
-    if (scopes is! Map) return;
+    if (scopes is! Map) {
+      throw const FarmlyDomainStoreAuthenticationFailure();
+    }
     for (final entry in scopes.entries) {
       final scopeKey = entry.key as String;
       final payload = await _decryptScope(scopeKey, entry.value);
       _scopes[scopeKey] = payload;
     }
+    // A failed read/decrypt must remain a failure on every later access. If
+    // this latch is set before the full document is authenticated, a retry
+    // could mistake an unreadable cache for an unbootstrapped empty scope.
+    _loaded = true;
   }
 
   Future<Map<String, Object?>> _decryptScope(
@@ -269,7 +341,9 @@ final class EncryptedFileDomainStore implements LocalDomainStore {
       ...?_scopes[scopeKey],
       'records': {
         for (final entity in entities.entries)
-          entity.key: {for (final row in entity.value.entries) row.key: row.value},
+          entity.key: {
+            for (final row in entity.value.entries) row.key: row.value,
+          },
       },
     };
   }
@@ -320,12 +394,37 @@ final class EncryptedFileDomainStore implements LocalDomainStore {
   Future<SyncCursorState?> cursorFor(String scopeKey) async {
     await _ensureLoaded();
     final cursor = _scopes[scopeKey]?['cursor'];
-    if (cursor is! Map) return null;
-    return SyncCursorState(
-      cursor: cursor['cursor'] as String,
-      highWatermark: cursor['highWatermark'] as String,
-      continuityEpoch: cursor['continuityEpoch'] as String,
-      scopePolicyVersion: cursor['scopePolicyVersion'] as String,
+    if (cursor == null) return null;
+    return _cursorFromJson(cursor);
+  }
+
+  @override
+  Future<LocalDomainSnapshot?> snapshotFor(String scopeKey) async {
+    await _ensureLoaded();
+    final scope = _scopes[scopeKey];
+    final rawCursor = scope?['cursor'];
+    if (rawCursor == null) return null;
+    final rawRecords = scope?['records'];
+    if (rawRecords is! Map) {
+      throw const FarmlyDomainStoreAuthenticationFailure();
+    }
+    final records = <String, Map<String, Object?>>{};
+    for (final entity in rawRecords.entries) {
+      if (entity.key is! String || entity.value is! Map) {
+        throw const FarmlyDomainStoreAuthenticationFailure();
+      }
+      final table = <String, Object?>{};
+      for (final row in (entity.value as Map).entries) {
+        if (row.key is! String || row.value is! Map) {
+          throw const FarmlyDomainStoreAuthenticationFailure();
+        }
+        table[row.key as String] = Map<String, Object?>.from(row.value as Map);
+      }
+      records[entity.key as String] = table;
+    }
+    return LocalDomainSnapshot(
+      cursor: _cursorFromJson(rawCursor),
+      records: records,
     );
   }
 
@@ -336,9 +435,25 @@ final class EncryptedFileDomainStore implements LocalDomainStore {
   }
 
   static Map<String, Object?> _cursorJson(SyncCursorState cursor) => {
-        'cursor': cursor.cursor,
-        'highWatermark': cursor.highWatermark,
-        'continuityEpoch': cursor.continuityEpoch,
-        'scopePolicyVersion': cursor.scopePolicyVersion,
-      };
+    'cursor': cursor.cursor,
+    'highWatermark': cursor.highWatermark,
+    'continuityEpoch': cursor.continuityEpoch,
+    'scopePolicyVersion': cursor.scopePolicyVersion,
+  };
+
+  static SyncCursorState _cursorFromJson(Object? value) {
+    if (value is! Map ||
+        value['cursor'] is! String ||
+        value['highWatermark'] is! String ||
+        value['continuityEpoch'] is! String ||
+        value['scopePolicyVersion'] is! String) {
+      throw const FarmlyDomainStoreAuthenticationFailure();
+    }
+    return SyncCursorState(
+      cursor: value['cursor'] as String,
+      highWatermark: value['highWatermark'] as String,
+      continuityEpoch: value['continuityEpoch'] as String,
+      scopePolicyVersion: value['scopePolicyVersion'] as String,
+    );
+  }
 }

@@ -58,6 +58,8 @@
     "migrate:operational-facts-fixes": "node scripts/migrate-operational-facts-fixes.mjs",
     "migrate:farm-location-weather": "node scripts/migrate-farm-location-weather.mjs",
     "migrate:weather-refresh-targets": "node scripts/migrate-weather-refresh-targets.mjs",
+    "migrate:farm-iana-timezone-guard": "node scripts/migrate-farm-iana-timezone-guard.mjs",
+    "migrate:task-schedule-rules": "node scripts/migrate-task-schedule-rules.mjs",
     "migrate:sync-bootstrap": "node scripts/migrate-sync-bootstrap.mjs",
     "weather:refresh": "node scripts/refresh-weather.mjs",
     "test:sync-bootstrap": "node test/farm-domain/sync-bootstrap.mjs"

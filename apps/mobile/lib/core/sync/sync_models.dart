@@ -19,8 +19,8 @@ enum OutboxEntryStatus {
   /// Server reported a version conflict — parked for manual resolution.
   conflict,
 
-  /// A declared dependency is not applied (rejected/conflict/unknown) — the
-  /// intent is held, not sent.
+  /// A declared dependency is missing, failed, blocked, or part of a cycle —
+  /// the intent is held, not sent.
   blocked,
 }
 

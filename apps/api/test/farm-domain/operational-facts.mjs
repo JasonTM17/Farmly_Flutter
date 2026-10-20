@@ -767,12 +767,61 @@ async function main() {
     await check('TEMPLATE_IRRIGATION_CREATE', async () => {
       const op = intent('taskTemplate.create', ids.templateIrrigationId, {
         title: `Water zone ${s8()}`, kind: 'irrigation', zoneId: ids.zoneWaterAId,
-        recurrence: { freq: 'weekly', timeOfDay: '17:30', daysOfWeek: [1, 4] },
+        recurrence: { freq: 'weekly', timeOfDay: '17:30', daysOfWeek: [1, 2, 4] },
         startsOn: '2026-01-01',
       }, epoch);
       const response = await domainCreate(manager.token, organizationId, farmAId, 'task-templates', op);
       const { view } = await applyDomainIntent(response, op.operationId, 'taskTemplate', farmAId, 'TEMPLATE_IRRIGATION_CREATE');
       assert(view.kind === 'irrigation' && view.recurrence?.freq === 'weekly', 'TEMPLATE_IRRIGATION_VIEW_INVALID');
+    });
+
+    stage('p06-task-weekly-schedule-validation');
+    await check('TEMPLATE_WEEKLY_MISSING_DAYS_REJECTED', async () => {
+      const op = intent('taskTemplate.create', randomUUID(), {
+        title: `Missing weekdays ${s8()}`,
+        recurrence: { freq: 'weekly', timeOfDay: '06:00' },
+      }, epoch);
+      const policyBefore = await policyVersion();
+      const revisionBefore = farmRevisions.get(farmAId);
+      const response = await farmBatch(manager.token, organizationId, farmAId, [op], epoch);
+      const body = await expectJson(response, 200, 'TEMPLATE_WEEKLY_MISSING_DAYS_REJECTED');
+      const outcome = assertBatchOutcome(body, op.operationId, 'rejected', 'TEMPLATE_WEEKLY_MISSING_DAYS_REJECTED');
+      assert(outcome.code === 'FIELD_VALIDATION_FAILED', 'TEMPLATE_WEEKLY_MISSING_DAYS_CODE');
+      await expectNoDomainMutation(farmAId, op.operationId, policyBefore, revisionBefore, 'TEMPLATE_WEEKLY_MISSING_DAYS_REJECTED');
+    });
+    await check('TEMPLATE_WEEKLY_EMPTY_DAYS_REJECTED', async () => {
+      const op = intent('taskTemplate.create', randomUUID(), {
+        title: `Empty weekdays ${s8()}`,
+        recurrence: { freq: 'weekly', timeOfDay: '06:00', daysOfWeek: [] },
+      }, epoch);
+      const response = await farmBatch(manager.token, organizationId, farmAId, [op], epoch);
+      const body = await expectJson(response, 200, 'TEMPLATE_WEEKLY_EMPTY_DAYS_REJECTED');
+      const outcome = assertBatchOutcome(body, op.operationId, 'rejected', 'TEMPLATE_WEEKLY_EMPTY_DAYS_REJECTED');
+      assert(outcome.code === 'FIELD_VALIDATION_FAILED', 'TEMPLATE_WEEKLY_EMPTY_DAYS_CODE');
+    });
+    await check('TEMPLATE_WEEKLY_NULL_DAYS_REJECTED', async () => {
+      const op = intent('taskTemplate.create', randomUUID(), {
+        title: `Null weekdays ${s8()}`,
+        recurrence: { freq: 'weekly', timeOfDay: '06:00', daysOfWeek: null },
+      }, epoch);
+      const policyBefore = await policyVersion();
+      const revisionBefore = farmRevisions.get(farmAId);
+      const response = await farmBatch(manager.token, organizationId, farmAId, [op], epoch);
+      const body = await expectJson(response, 200, 'TEMPLATE_WEEKLY_NULL_DAYS_REJECTED');
+      const outcome = assertBatchOutcome(body, op.operationId, 'rejected', 'TEMPLATE_WEEKLY_NULL_DAYS_REJECTED');
+      assert(outcome.code === 'FIELD_VALIDATION_FAILED', 'TEMPLATE_WEEKLY_NULL_DAYS_CODE');
+      await expectNoDomainMutation(farmAId, op.operationId, policyBefore, revisionBefore, 'TEMPLATE_WEEKLY_NULL_DAYS_REJECTED');
+    });
+    await check('TEMPLATE_WEEKLY_UPDATE_MISSING_DAYS_REJECTED', async () => {
+      const op = intent('taskTemplate.update', ids.templateIrrigationId, {
+        recurrence: { freq: 'weekly', timeOfDay: '17:30' },
+      }, epoch, { baseVersion: 1 });
+      const response = await farmBatch(manager.token, organizationId, farmAId, [op], epoch);
+      const body = await expectJson(response, 200, 'TEMPLATE_WEEKLY_UPDATE_MISSING_DAYS_REJECTED');
+      const outcome = assertBatchOutcome(body, op.operationId, 'rejected', 'TEMPLATE_WEEKLY_UPDATE_MISSING_DAYS_REJECTED');
+      assert(outcome.code === 'FIELD_VALIDATION_FAILED', 'TEMPLATE_WEEKLY_UPDATE_MISSING_DAYS_CODE');
+      const unchanged = await listEntry(manager.token, organizationId, farmAId, 'task-templates', 'taskTemplates', ids.templateIrrigationId, 'TEMPLATE_WEEKLY_UPDATE_MISSING_DAYS_REJECTED');
+      assert(unchanged?.version === 1 && unchanged?.recurrence?.daysOfWeek?.join(',') === '1,2,4', 'TEMPLATE_WEEKLY_UPDATE_PARTIAL_MUTATION');
     });
 
     // ---- P06 cases -----------------------------------------------------------
@@ -987,6 +1036,78 @@ async function main() {
       const body = await expectJson(response, 200, 'OCCURRENCE_UNASSIGNED_WORKER_DENIED');
       const entry = body?.data?.outcomes?.find((item) => item.operationId === op.operationId);
       assert(entry?.outcome === 'applied', 'IRRIGATION_TRANSITION_OUTCOME');
+    });
+    await check('OCCURRENCE_DEFAULT_SLOT_MATCHES_SQL_ID', async () => {
+      const occurrenceDate = '2026-10-12'; // Monday is selected by this template.
+      const slot = 'default';
+      const id = occurrenceIdFor(farmAId, ids.templateIrrigationId, occurrenceDate, slot);
+      assert(
+        occurrenceIdFor('00000000-0000-4000-8000-000000000100', '00000000-0000-4000-8000-000000000101', '2026-10-19', 'default') === 'd6b616b7-5153-57e6-87cc-2e379ee6a10b',
+        'OCCURRENCE_DEFAULT_SQL_ID_VECTOR',
+      );
+      const op = intent('irrigationTask.transition', id, {
+        templateId: ids.templateIrrigationId, occurrenceDate, slot, transition: 'complete',
+      }, epoch);
+      const response = await farmBatch(worker.token, organizationId, farmAId, [op], epoch);
+      const body = await expectJson(response, 200, 'OCCURRENCE_DEFAULT_SLOT_MATCHES_SQL_ID');
+      const entry = assertBatchOutcome(body, op.operationId, 'applied', 'OCCURRENCE_DEFAULT_SLOT_MATCHES_SQL_ID');
+      assert(entry.code === null || entry.code === undefined, 'OCCURRENCE_DEFAULT_SLOT_CODE');
+      const listed = await listEntry(worker.token, organizationId, farmAId, 'task-occurrences', 'taskOccurrences', id, 'OCCURRENCE_DEFAULT_SLOT_MATCHES_SQL_ID');
+      assert(listed?.slot === 'default' && listed?.status === 'done' && listed?.version === 2, 'OCCURRENCE_DEFAULT_SLOT_STATE');
+    });
+    await check('OCCURRENCE_MATERIALIZED_SLOT_SURVIVES_SCHEDULE_CHANGE', async () => {
+      const update = intent('taskTemplate.update', ids.templateIrrigationId, {
+        recurrence: { freq: 'weekly', timeOfDay: '17:30', daysOfWeek: [2] },
+      }, epoch, { baseVersion: 1 });
+      const updatedResponse = await farmBatch(manager.token, organizationId, farmAId, [update], epoch);
+      const updatedBody = await expectJson(updatedResponse, 200, 'OCCURRENCE_MATERIALIZED_SLOT_SURVIVES_SCHEDULE_CHANGE');
+      assertBatchOutcome(updatedBody, update.operationId, 'applied', 'OCCURRENCE_TEMPLATE_SCHEDULE_UPDATE');
+
+      const id = occurrenceIdFor(farmAId, ids.templateIrrigationId, '2026-10-12', 'evening');
+      const reopen = intent('irrigationTask.transition', id, {
+        templateId: ids.templateIrrigationId, occurrenceDate: '2026-10-12', slot: 'evening', transition: 'reopen',
+      }, epoch, { baseVersion: 2 });
+      const response = await farmBatch(manager.token, organizationId, farmAId, [reopen], epoch);
+      const body = await expectJson(response, 200, 'OCCURRENCE_MATERIALIZED_SLOT_SURVIVES_SCHEDULE_CHANGE');
+      assertBatchOutcome(body, reopen.operationId, 'applied', 'OCCURRENCE_MATERIALIZED_SLOT_REOPEN');
+      const listed = await listEntry(manager.token, organizationId, farmAId, 'task-occurrences', 'taskOccurrences', id, 'OCCURRENCE_MATERIALIZED_SLOT_REOPEN');
+      assert(listed?.slot === 'evening' && listed?.status === 'open' && listed?.version === 3, 'OCCURRENCE_MATERIALIZED_SLOT_NOT_PRESERVED');
+    });
+    await check('OCCURRENCE_OFF_WEEKDAY_REJECTED_WITHOUT_MATERIALIZATION', async () => {
+      const occurrenceDate = '2026-10-14'; // Wednesday is not selected after the update.
+      const slot = 'default';
+      const id = occurrenceIdFor(farmAId, ids.templateIrrigationId, occurrenceDate, slot);
+      const op = intent('irrigationTask.transition', id, {
+        templateId: ids.templateIrrigationId, occurrenceDate, slot, transition: 'complete',
+      }, epoch);
+      const policyBefore = await policyVersion();
+      const revisionBefore = farmRevisions.get(farmAId);
+      const response = await farmBatch(worker.token, organizationId, farmAId, [op], epoch);
+      const body = await expectJson(response, 200, 'OCCURRENCE_OFF_WEEKDAY_REJECTED_WITHOUT_MATERIALIZATION');
+      const outcome = assertBatchOutcome(body, op.operationId, 'rejected', 'OCCURRENCE_OFF_WEEKDAY_REJECTED_WITHOUT_MATERIALIZATION');
+      assert(outcome.code === 'FIELD_VALIDATION_FAILED', 'OCCURRENCE_OFF_WEEKDAY_CODE');
+      await expectNoDomainMutation(farmAId, op.operationId, policyBefore, revisionBefore, 'OCCURRENCE_OFF_WEEKDAY_REJECTED_WITHOUT_MATERIALIZATION');
+      const absent = await listEntry(worker.token, organizationId, farmAId, 'task-occurrences', 'taskOccurrences', id, 'OCCURRENCE_OFF_WEEKDAY_REJECTED_WITHOUT_MATERIALIZATION');
+      assert(absent === undefined, 'OCCURRENCE_OFF_WEEKDAY_MATERIALIZED');
+
+      // Changing the schedule later must not turn the exact rejected intent
+      // into an applied occurrence when a device replays it after a lost ACK.
+      const includeWednesday = intent('taskTemplate.update', ids.templateIrrigationId, {
+        recurrence: { freq: 'weekly', timeOfDay: '17:30', daysOfWeek: [2, 3] },
+      }, epoch, { baseVersion: 2 });
+      const scheduleResponse = await farmBatch(manager.token, organizationId, farmAId, [includeWednesday], epoch);
+      const scheduleBody = await expectJson(scheduleResponse, 200, 'OCCURRENCE_REPLAY_SCHEDULE_UPDATE');
+      assertBatchOutcome(scheduleBody, includeWednesday.operationId, 'applied', 'OCCURRENCE_REPLAY_SCHEDULE_UPDATE');
+
+      const policyAfterUpdate = await policyVersion();
+      const revisionAfterUpdate = BigInt(await clockRevision(farmAId));
+      const replayResponse = await farmBatch(worker.token, organizationId, farmAId, [op], epoch);
+      const replayBody = await expectJson(replayResponse, 200, 'OCCURRENCE_OFF_WEEKDAY_REPLAY_STAYS_REJECTED');
+      const replayOutcome = assertBatchOutcome(replayBody, op.operationId, 'rejected', 'OCCURRENCE_OFF_WEEKDAY_REPLAY_STAYS_REJECTED');
+      assert(replayOutcome.code === 'FIELD_VALIDATION_FAILED', 'OCCURRENCE_OFF_WEEKDAY_REPLAY_CODE_CHANGED');
+      await expectNoDomainMutation(farmAId, op.operationId, policyAfterUpdate, revisionAfterUpdate, 'OCCURRENCE_OFF_WEEKDAY_REPLAY_STAYS_REJECTED');
+      const stillAbsent = await listEntry(worker.token, organizationId, farmAId, 'task-occurrences', 'taskOccurrences', id, 'OCCURRENCE_OFF_WEEKDAY_REPLAY_STAYS_REJECTED');
+      assert(stillAbsent === undefined, 'OCCURRENCE_OFF_WEEKDAY_REPLAY_MATERIALIZED');
     });
     await check('IRRIGATION_ROUTE_KIND_GUARD', async () => {
       // irrigationTask.transition on a non-irrigation template is a field error.

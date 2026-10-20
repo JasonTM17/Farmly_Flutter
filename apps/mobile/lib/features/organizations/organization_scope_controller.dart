@@ -132,6 +132,36 @@ class SelectedOrganizationScopeController
     return isCurrent(ticket);
   }
 
+  /// Install a freshly fetched, complete directory without changing the
+  /// selected organization or switching farms behind the user's back.
+  Future<bool> refreshDirectory(
+    FarmlyFarmDirectory directory, {
+    required int ticket,
+  }) async {
+    final current = state;
+    if (current == null || !isCurrent(ticket)) return false;
+    final selectedFarmId = current.selectedFarmId;
+    final selectedStillAuthorized =
+        selectedFarmId != null &&
+        directory.farms.any(
+          (farm) =>
+              farm.id == selectedFarmId &&
+              farm.status == FarmlyFarmStatus.active,
+        );
+    final next = FarmlyOrganizationScope(
+      organization: current.organization,
+      directory: directory,
+      epoch: current.epoch,
+      selectedFarmId: selectedStillAuthorized ? selectedFarmId : null,
+    );
+    state = next;
+    await _queuePersist(
+      next.toOfflineSnapshot(),
+      validatedAt: ref.read(farmlyAuthClockProvider)().toUtc(),
+    );
+    return isCurrent(ticket);
+  }
+
   Future<bool> selectFarm(String farmId) async {
     final current = state;
     if (current == null ||

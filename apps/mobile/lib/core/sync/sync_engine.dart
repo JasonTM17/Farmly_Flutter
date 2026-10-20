@@ -72,8 +72,98 @@ final class FarmlySyncEngine {
   Future<OutboxEntry> enqueue(FarmlyScopedMutation mutation) =>
       _outbox.enqueue(mutation);
 
+  /// Refresh the authorization directory before draining any scope. Farm
+  /// creation is sent at organization scope first; after an attempt, refresh
+  /// again before admitting child-farm work.
+  Future<SyncRunReport?> synchronizeAuthorizedScopes({
+    required Future<List<FarmlyMutationScope>?> Function()
+    refreshAuthorizedScopes,
+  }) async {
+    var scopes = await refreshAuthorizedScopes();
+    if (scopes == null) return null;
+    if (scopes.isEmpty) return const SyncRunReport();
+
+    var organizationScope = _requireOrganizationScope(scopes);
+    final reports = <SyncRunReport>[await synchronize(organizationScope)];
+    // A lost ACK may be recovered as applied without a send in this pass.
+    // Refresh in either case so child-farm work can use the newly admitted
+    // farm in the same synchronization run.
+    if (reports.single.sent > 0 || reports.single.reconciled > 0) {
+      scopes = await refreshAuthorizedScopes();
+      if (scopes == null || scopes.isEmpty) return _combineReports(reports);
+      organizationScope = _requireOrganizationScope(scopes);
+    }
+
+    final seenFarmIds = <String>{};
+    for (final authorizedScope in scopes) {
+      if (authorizedScope.kind == FarmlyMutationScopeKind.organization) {
+        continue;
+      }
+      if (authorizedScope.accountId != organizationScope.accountId ||
+          authorizedScope.organizationId != organizationScope.organizationId ||
+          authorizedScope.continuityEpoch !=
+              organizationScope.continuityEpoch) {
+        throw ArgumentError('Authorized farm scopes must share one directory');
+      }
+      final farmId = authorizedScope.farmId;
+      if (farmId == null || !seenFarmIds.add(farmId)) {
+        throw ArgumentError('Authorized directory farm IDs must be unique');
+      }
+      reports.add(await synchronize(authorizedScope));
+    }
+    return _combineReports(reports);
+  }
+
+  FarmlyMutationScope _requireOrganizationScope(
+    List<FarmlyMutationScope> scopes,
+  ) {
+    final organizations = scopes
+        .where((scope) => scope.kind == FarmlyMutationScopeKind.organization)
+        .toList(growable: false);
+    if (organizations.length != 1) {
+      throw ArgumentError(
+        'A fresh directory must contain one organization scope',
+      );
+    }
+    final organization = organizations.single;
+    final seenFarmIds = <String>{};
+    for (final scope in scopes) {
+      if (scope.accountId != organization.accountId ||
+          scope.organizationId != organization.organizationId ||
+          scope.continuityEpoch != organization.continuityEpoch) {
+        throw ArgumentError('Authorized scopes must share one directory');
+      }
+      if (scope.kind == FarmlyMutationScopeKind.farm) {
+        final farmId = scope.farmId;
+        if (farmId == null || !seenFarmIds.add(farmId)) {
+          throw ArgumentError('Authorized directory farm IDs must be unique');
+        }
+      }
+    }
+    return organization;
+  }
+
+  SyncRunReport _combineReports(List<SyncRunReport> reports) => SyncRunReport(
+    sent: reports.fold(0, (sum, report) => sum + report.sent),
+    applied: reports.fold(0, (sum, report) => sum + report.applied),
+    rejected: reports.fold(0, (sum, report) => sum + report.rejected),
+    conflicted: reports.fold(0, (sum, report) => sum + report.conflicted),
+    blocked: reports.fold(0, (sum, report) => sum + report.blocked),
+    reconciled: reports.fold(0, (sum, report) => sum + report.reconciled),
+    pulledChangeSets: reports.fold(
+      0,
+      (sum, report) => sum + report.pulledChangeSets,
+    ),
+    bootstrapped: reports.any((report) => report.bootstrapped),
+  );
+
   String _scopeKey(FarmlyMutationScope scope) =>
       '${scope.accountId}|${scope.organizationId}|${scope.farmId ?? ''}';
+
+  /// Read confirmed local data and its cursor from the same authenticated
+  /// scope projection used by the sync worker.
+  Future<LocalDomainSnapshot?> domainSnapshot(FarmlyMutationScope scope) =>
+      _domain.snapshotFor(_scopeKey(scope));
 
   /// One full pass: flush the outbox for the scope, then pull the feed
   /// (or re-bootstrap when the cursor is dead). Transport failures leave
@@ -89,86 +179,167 @@ final class FarmlySyncEngine {
     );
     final byId = {for (final e in entries) e.operationId: e};
 
-    // Entries the dependency gate marks blocked this pass.
-    final gateBlocked = <String>{};
-
-    // Dependency gate: an intent only flies once every declared parent is
-    // provably applied (in this store or already absent = server-known).
-    final sendable = <OutboxEntry>[];
-    for (final entry in entries) {
-      if (entry.mutation.scope.farmId != scope.farmId) continue;
-      if (entry.status != OutboxEntryStatus.pending &&
-          entry.status != OutboxEntryStatus.inFlight) {
-        continue;
-      }
-      var held = false;
-      for (final dep in entry.dependsOn) {
-        final parent = byId[dep];
-        if (parent == null || parent.status == OutboxEntryStatus.applied) {
-          continue;
-        }
-        if (parent.status == OutboxEntryStatus.rejected ||
-            parent.status == OutboxEntryStatus.conflict) {
-          await _outbox.update(entry.copyWith(status: OutboxEntryStatus.blocked));
-          gateBlocked.add(entry.operationId);
-          blocked++;
-          held = true;
-          break;
-        }
-        // parent still pending/in-flight — hold silently this pass.
-        held = true;
-        break;
-      }
-      if (!held) sendable.add(entry);
-    }
-
-    // Statuses settled this pass, keyed by operationId — `byId` goes stale the
-    // moment an outcome is written, so dependency settlement reads this.
     final settledStatus = <String, OutboxEntryStatus>{};
-    for (final id in gateBlocked) {
-      settledStatus[id] = OutboxEntryStatus.blocked;
-    }
     OutboxEntryStatus? statusOf(String id) =>
         settledStatus[id] ?? byId[id]?.status;
 
-    if (sendable.isNotEmpty) {
-      sent = sendable.length;
-      MutationBatchResult? result;
-      try {
-        result = await _transport.submitMutations(
-          scope: scope,
-          operations: [for (final e in sendable) e.mutation.intent],
-        );
-      } on Object {
-        // Ambiguous send (lost ACK is indistinguishable from unsent): mark
-        // in-flight and reconcile against the durable operation ledger.
-        for (final entry in sendable) {
+    // A cycle cannot settle through server outcomes. Persist every member as
+    // blocked so the Sync Center exposes the malformed local dependency graph.
+    final cycleIds = _dependencyCycleIds(entries, byId);
+    for (final entry in entries) {
+      if (!cycleIds.contains(entry.operationId) ||
+          (entry.status != OutboxEntryStatus.pending &&
+              entry.status != OutboxEntryStatus.inFlight)) {
+        continue;
+      }
+      await _outbox.update(
+        entry.copyWith(
+          status: OutboxEntryStatus.blocked,
+          lastFailureCode: 'DEPENDENCY_CYCLE',
+        ),
+      );
+      settledStatus[entry.operationId] = OutboxEntryStatus.blocked;
+      blocked++;
+    }
+
+    // Dependencies are settled after every response and at the start of each
+    // batch round. That also recovers a parent rejection after process restart.
+    Future<void> settleFailedDependencies() async {
+      for (final entry in entries) {
+        if (statusOf(entry.operationId) != OutboxEntryStatus.pending) continue;
+        for (final dependencyId in entry.dependsOn) {
+          final parent = statusOf(dependencyId);
+          final failureCode = parent == null
+              ? 'DEPENDENCY_MISSING'
+              : parent == OutboxEntryStatus.blocked
+              ? 'DEPENDENCY_BLOCKED'
+              : parent == OutboxEntryStatus.rejected ||
+                    parent == OutboxEntryStatus.conflict
+              ? 'DEPENDENCY_FAILED'
+              : null;
+          if (failureCode == null) continue;
           await _outbox.update(
             entry.copyWith(
-              status: OutboxEntryStatus.inFlight,
-              attemptCount: entry.attemptCount + 1,
-              lastFailureCode: 'TRANSPORT',
+              status: OutboxEntryStatus.blocked,
+              lastFailureCode: failureCode,
             ),
           );
+          settledStatus[entry.operationId] = OutboxEntryStatus.blocked;
+          blocked++;
+          break;
         }
-        final proofs = await _reconcile(scope, sendable, settledStatus);
-        reconciled = proofs;
       }
-      if (result != null) {
+    }
+
+    // An earlier request may have lost its response after the server denied
+    // it. Reconcile persisted in-flight entries before any operation can be
+    // submitted again, including after an app restart.
+    final inFlightForScope = entries
+        .where(
+          (entry) =>
+              entry.mutation.scope.farmId == scope.farmId &&
+              entry.status == OutboxEntryStatus.inFlight &&
+              !cycleIds.contains(entry.operationId),
+        )
+        .toList(growable: false);
+    if (inFlightForScope.isNotEmpty) {
+      final result = await _reconcile(scope, inFlightForScope, settledStatus);
+      reconciled += result.reconciled;
+      rejected += result.rejected;
+      await settleFailedDependencies();
+    }
+
+    bool terminal(OutboxEntry entry) {
+      final status = statusOf(entry.operationId);
+      return status == OutboxEntryStatus.applied ||
+          status == OutboxEntryStatus.rejected ||
+          status == OutboxEntryStatus.conflict ||
+          status == OutboxEntryStatus.blocked;
+    }
+
+    while (true) {
+      await settleFailedDependencies();
+      final sendable = <OutboxEntry>[];
+      for (final entry in entries) {
+        final entryStatus = statusOf(entry.operationId);
+        if (entry.mutation.scope.farmId != scope.farmId ||
+            (entryStatus != OutboxEntryStatus.pending &&
+                entryStatus != OutboxEntryStatus.inFlight) ||
+            (entryStatus == OutboxEntryStatus.inFlight &&
+                !settledStatus.containsKey(entry.operationId)) ||
+            cycleIds.contains(entry.operationId)) {
+          continue;
+        }
+        if (entry.dependsOn.any(
+          (dependencyId) => statusOf(dependencyId) != OutboxEntryStatus.applied,
+        )) {
+          continue;
+        }
+        sendable.add(entry);
+      }
+      if (sendable.isEmpty) break;
+
+      var stopAfterBatch = false;
+      for (var offset = 0; offset < sendable.length; offset += 50) {
+        final end = min(offset + 50, sendable.length);
+        final batch = sendable.sublist(offset, end);
+        sent += batch.length;
+        MutationBatchResult? result;
+        try {
+          result = await _transport.submitMutations(
+            scope: scope,
+            operations: [for (final entry in batch) entry.mutation.intent],
+          );
+        } on Object catch (error) {
+          // Ambiguous send (lost ACK is indistinguishable from unsent): mark
+          // in-flight and reconcile the same bounded batch by stable IDs.
+          // Keep safe typed rejection classes so an unknown ledger result
+          // cannot turn a known denial into an endless retry.
+          final failureMarker = _batchFailureMarker(error);
+          final inFlightBatch = <OutboxEntry>[];
+          for (final entry in batch) {
+            final inFlightEntry = entry.copyWith(
+              status: OutboxEntryStatus.inFlight,
+              attemptCount: entry.attemptCount + 1,
+              lastFailureCode: failureMarker,
+            );
+            await _outbox.update(inFlightEntry);
+            settledStatus[entry.operationId] = OutboxEntryStatus.inFlight;
+            inFlightBatch.add(inFlightEntry);
+          }
+          final reconciliation = await _reconcile(
+            scope,
+            inFlightBatch,
+            settledStatus,
+          );
+          reconciled += reconciliation.reconciled;
+          rejected += reconciliation.rejected;
+          await settleFailedDependencies();
+          if (inFlightBatch.any((entry) => !terminal(entry))) {
+            stopAfterBatch = true;
+            break;
+          }
+          continue;
+        }
+
         final outcomes = {
-          for (final o in result.outcomes) o.operationId: o,
+          for (final outcome in result.outcomes) outcome.operationId: outcome,
         };
-        for (final entry in sendable) {
+        for (final entry in batch) {
           final outcome = outcomes[entry.operationId];
           if (outcome == null) {
-            await _outbox.update(
-              entry.copyWith(
-                status: OutboxEntryStatus.inFlight,
-                attemptCount: entry.attemptCount + 1,
-                lastFailureCode: 'OUTCOME_MISSING',
-              ),
+            final inFlightEntry = entry.copyWith(
+              status: OutboxEntryStatus.inFlight,
+              attemptCount: entry.attemptCount + 1,
+              lastFailureCode: 'OUTCOME_MISSING',
             );
-            reconciled += await _reconcile(scope, [entry], settledStatus);
+            await _outbox.update(inFlightEntry);
+            settledStatus[entry.operationId] = OutboxEntryStatus.inFlight;
+            final reconciliation = await _reconcile(scope, [
+              inFlightEntry,
+            ], settledStatus);
+            reconciled += reconciliation.reconciled;
+            rejected += reconciliation.rejected;
             continue;
           }
           switch (outcome.outcome) {
@@ -213,30 +384,13 @@ final class FarmlySyncEngine {
               settledStatus[entry.operationId] = OutboxEntryStatus.pending;
           }
         }
-      }
-
-      // Settle dependency fallout in the same pass: children held at the
-      // gate by a parent that just reached a terminal failure become
-      // `blocked` now rather than next pass. Sendable entries already flew —
-      // their truth lives in outcomes/reconcile, not the dependency gate.
-      for (final entry in entries) {
-        if (sendable.any((e) => e.operationId == entry.operationId)) continue;
-        if (statusOf(entry.operationId) != OutboxEntryStatus.pending) {
-          continue;
-        }
-        for (final dep in entry.dependsOn) {
-          final parent = statusOf(dep);
-          if (parent == OutboxEntryStatus.rejected ||
-              parent == OutboxEntryStatus.conflict) {
-            await _outbox.update(
-              entry.copyWith(status: OutboxEntryStatus.blocked),
-            );
-            settledStatus[entry.operationId] = OutboxEntryStatus.blocked;
-            blocked++;
-            break;
-          }
+        await settleFailedDependencies();
+        if (batch.any((entry) => !terminal(entry))) {
+          stopAfterBatch = true;
+          break;
         }
       }
+      if (stopAfterBatch) break;
     }
 
     if (scope.kind == FarmlyMutationScopeKind.farm) {
@@ -258,14 +412,15 @@ final class FarmlySyncEngine {
   }
 
   /// Lost-ACK path: ask the server's durable operation ledger instead of
-  /// trusting a transport response (S-05/S-06 — 'unknown' stays pending,
-  /// never silently marked not-applied).
-  Future<int> _reconcile(
+  /// trusting a transport response. An unknown result stays pending for
+  /// ambiguous failures, while a previously observed typed denial is terminal.
+  Future<({int reconciled, int rejected})> _reconcile(
     FarmlyMutationScope scope,
     List<OutboxEntry> entries,
     Map<String, OutboxEntryStatus> settledStatus,
   ) async {
     var reconciled = 0;
+    var rejected = 0;
     List<OperationStatusEntry> proofs;
     try {
       proofs = await _transport.operationStatus(
@@ -273,7 +428,7 @@ final class FarmlySyncEngine {
         operationIds: [for (final e in entries) e.operationId],
       );
     } on Object {
-      return 0; // ledger unreachable — entries stay in-flight honestly.
+      return (reconciled: 0, rejected: 0);
     }
     final byId = {for (final p in proofs) p.operationId: p.proof};
     for (final entry in entries) {
@@ -285,24 +440,81 @@ final class FarmlySyncEngine {
           settledStatus[entry.operationId] = OutboxEntryStatus.applied;
           reconciled++;
         case OperationProof.rejected:
+          final rejectionCode =
+              _rejectionForReconciledFailure(entry) ?? 'REJECTED';
           await _outbox.update(
             entry.copyWith(
               status: OutboxEntryStatus.rejected,
-              rejectionCode: 'REJECTED',
+              rejectionCode: rejectionCode,
             ),
           );
           settledStatus[entry.operationId] = OutboxEntryStatus.rejected;
           reconciled++;
+          rejected++;
         case OperationProof.unknown:
         case null:
-          // Never claimed: back to pending — replay is idempotent by opId.
-          await _outbox.update(
-            entry.copyWith(status: OutboxEntryStatus.pending),
-          );
-          settledStatus[entry.operationId] = OutboxEntryStatus.pending;
+          final rejectionCode = _rejectionForReconciledFailure(entry);
+          if (rejectionCode != null) {
+            // A typed client error proves the request was rejected once no
+            // durable operation receipt exists. Do not replay it forever.
+            await _outbox.update(
+              entry.copyWith(
+                status: OutboxEntryStatus.rejected,
+                rejectionCode: rejectionCode,
+              ),
+            );
+            settledStatus[entry.operationId] = OutboxEntryStatus.rejected;
+            reconciled++;
+            rejected++;
+          } else {
+            // Ambiguous transport failures with no receipt are safe to replay
+            // under the same immutable operation ID.
+            await _outbox.update(
+              entry.copyWith(status: OutboxEntryStatus.pending),
+            );
+            settledStatus[entry.operationId] = OutboxEntryStatus.pending;
+          }
       }
     }
-    return reconciled;
+    return (reconciled: reconciled, rejected: rejected);
+  }
+
+  Set<String> _dependencyCycleIds(
+    List<OutboxEntry> entries,
+    Map<String, OutboxEntry> byId,
+  ) {
+    final visitState = <String, int>{};
+    final path = <String>[];
+    final cycleIds = <String>{};
+
+    bool unresolved(OutboxEntry entry) =>
+        entry.status == OutboxEntryStatus.pending ||
+        entry.status == OutboxEntryStatus.inFlight;
+
+    void visit(OutboxEntry entry) {
+      final id = entry.operationId;
+      visitState[id] = 1;
+      path.add(id);
+      for (final dependencyId in entry.dependsOn) {
+        final parent = byId[dependencyId];
+        if (parent == null || !unresolved(parent)) continue;
+        final parentState = visitState[dependencyId] ?? 0;
+        if (parentState == 1) {
+          cycleIds.addAll(path.skip(path.indexOf(dependencyId)));
+        } else if (parentState == 0) {
+          visit(parent);
+        }
+      }
+      path.removeLast();
+      visitState[id] = 2;
+    }
+
+    for (final entry in entries) {
+      if (unresolved(entry) && (visitState[entry.operationId] ?? 0) == 0) {
+        visit(entry);
+      }
+    }
+    return cycleIds;
   }
 
   /// Pull committed change sets in revision order; an expired/dead cursor
@@ -339,8 +551,7 @@ final class FarmlySyncEngine {
             cursor: isLast ? page.nextCursor : cursor,
             highWatermark: page.highWatermark,
             continuityEpoch: changeSet.continuityEpoch,
-            scopePolicyVersion:
-                state.scopePolicyVersion,
+            scopePolicyVersion: state.scopePolicyVersion,
           ),
         );
       }
@@ -387,10 +598,7 @@ final class FarmlySyncEngine {
   Future<List<OutboxEntry>> entries({
     required String accountId,
     required String organizationId,
-  }) => _outbox.entries(
-        accountId: accountId,
-        organizationId: organizationId,
-      );
+  }) => _outbox.entries(accountId: accountId, organizationId: organizationId);
 
   /// User chose "giữ bản máy chủ": the conflicted local intent is retired as
   /// superseded (auditable, immutable) and the conflict record clears.
@@ -432,3 +640,23 @@ final class FarmlySyncEngine {
     return _outbox.enqueue(replacement);
   }
 }
+
+String _batchFailureMarker(Object error) {
+  if (error is! FarmlyApiFailure) return 'TRANSPORT';
+  return switch (error.code) {
+    FarmlyApiFailureCode.permissionDenied => 'RECONCILE_PERMISSION_DENIED',
+    FarmlyApiFailureCode.invalidRequest => 'RECONCILE_INVALID_REQUEST',
+    FarmlyApiFailureCode.notFound => 'RECONCILE_NOT_FOUND',
+    FarmlyApiFailureCode.conflict => 'RECONCILE_CONFLICT',
+    _ => 'TRANSPORT',
+  };
+}
+
+String? _rejectionForReconciledFailure(OutboxEntry entry) =>
+    switch (entry.lastFailureCode) {
+      'RECONCILE_PERMISSION_DENIED' => 'PERMISSION_DENIED',
+      'RECONCILE_INVALID_REQUEST' ||
+      'RECONCILE_NOT_FOUND' ||
+      'RECONCILE_CONFLICT' => 'RECONCILIATION_REQUIRED',
+      _ => null,
+    };

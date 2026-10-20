@@ -10,6 +10,8 @@ import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../test/support/p02_namespaced_secret_store.dart';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -21,7 +23,7 @@ void main() {
       p.join(support.path, 'farmly-p02-storage-probe.db'),
     );
     const sidecarSuffixes = ['-wal', '-shm', '-journal'];
-    final secrets = FlutterFarmlySecretStore();
+    final secrets = P02ProbeSecretStore(FlutterFarmlySecretStore());
     final keys = FarmlyOfflineKeyStore(secrets);
     final sessions = FarmlySessionTokenStore(secrets);
 

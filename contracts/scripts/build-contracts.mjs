@@ -1004,12 +1004,21 @@ function toJsonExpression(schema, name, optional = false) {
 
 export function renderDartTypes(openapiText) {
   const document = JSON.parse(openapiText);
+  const mutationTypeValues = document.components.schemas.FarmMutation?.properties?.type?.enum;
+  if (!Array.isArray(mutationTypeValues) || mutationTypeValues.length === 0) {
+    throw new Error('FarmMutation.type must define a non-empty canonical enum');
+  }
   const hash = sha256(openapiText);
   const lines = [
     '// GENERATED FILE. Run node contracts/scripts/build-contracts.mjs to refresh.',
     `// OpenAPI SHA-256: ${hash}`,
     '',
     'typedef FarmlyJsonMap = Map<String, dynamic>;',
+    '',
+    '/// Canonical operation types accepted by the Farmly mutation protocol.',
+    'const Set<String> farmlyMutationTypes = <String>{',
+    ...mutationTypeValues.map((type) => `  ${JSON.stringify(type)},`),
+    '};',
     '',
     '/// Exact base-10 wire value. It intentionally avoids floating-point conversion.',
     'final class FarmlyDecimal {',

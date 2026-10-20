@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { Module } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import { NestFactory } from '@nestjs/core';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 
 const expectedDatabaseName = 'farmly_test_261005';
@@ -46,6 +46,13 @@ function mutation(operationId = randomUUID(), resourceId = randomUUID(), name = 
     dependsOn: [],
     payload: { name, areaM2: '125000.00', timezone: 'Asia/Ho_Chi_Minh' },
   };
+}
+
+function occurrenceIdFor(farmId, templateId, occurrenceDate, slot) {
+  const hash = createHash('md5')
+    .update(`taskocc:${farmId}:${templateId}:${occurrenceDate}:${slot}`)
+    .digest('hex');
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
 function reorderedMutation(value) {
@@ -113,6 +120,7 @@ async function countOperation(migration, organizationId, farmId, operationId) {
       (SELECT count(*)::INTEGER FROM public.farms WHERE organization_id = $1::uuid AND id = $2::uuid) AS farms,
       (SELECT count(*)::INTEGER FROM public.farm_clocks WHERE organization_id = $1::uuid AND farm_id = $2::uuid) AS clocks,
       (SELECT count(*)::INTEGER FROM public.applied_operations WHERE organization_id = $1::uuid AND operation_id = $3::uuid) AS proofs,
+      (SELECT count(*)::INTEGER FROM public.operation_response_cache WHERE organization_id = $1::uuid AND operation_id = $3::uuid) AS caches,
       (SELECT count(*)::INTEGER FROM public.change_sets WHERE organization_id = $1::uuid AND operation_id = $3::uuid) AS changes,
       (SELECT count(*)::INTEGER FROM public.audit_events WHERE organization_id = $1::uuid AND operation_id = $3::uuid) AS audits,
       (SELECT policy_version::TEXT FROM public.organizations WHERE id = $1::uuid) AS policy_version
@@ -179,6 +187,7 @@ async function main() {
   const organizationIds = [organizationId, foreignOrganizationId];
   const suffixUuid = randomUUID();
   const migration = new Client({ connectionString: withApplicationName(migrationUrl, `farmly-mutation-migration-${suffix}`) });
+  let taskResourceLocker;
   const createdDatabaseServices = [];
   let app;
   let mutationHttpTestServer;
@@ -203,6 +212,42 @@ async function main() {
              EXISTS (SELECT 1 FROM pg_catalog.pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'get_my_operation_status') AS status_ready
     `);
     assert(Object.values(schema.rows[0]).every(Boolean), 'MUTATION_KERNEL_SCHEMA_NOT_READY');
+
+    currentStage = 'check-mutation-guard-execution-privileges';
+    const timezoneGuardPrivileges = await migration.query(`
+      SELECT
+        pg_catalog.has_function_privilege('farmly_tenant_app', wrapper.oid, 'EXECUTE') AS wrapper_tenant,
+        pg_catalog.has_function_privilege('farmly_tenant_app', schedule_guard.oid, 'EXECUTE') AS schedule_guard_tenant,
+        pg_catalog.has_function_privilege('farmly_tenant_app', core.oid, 'EXECUTE') AS core_tenant,
+        EXISTS (
+          SELECT 1
+          FROM pg_catalog.aclexplode(COALESCE(schedule_guard.proacl, pg_catalog.acldefault('f', schedule_guard.proowner))) AS privilege
+          WHERE privilege.grantee = 0 AND privilege.privilege_type = 'EXECUTE'
+        ) AS schedule_guard_public,
+        EXISTS (
+          SELECT 1
+          FROM pg_catalog.aclexplode(COALESCE(core.proacl, pg_catalog.acldefault('f', core.proowner))) AS privilege
+          WHERE privilege.grantee = 0 AND privilege.privilege_type = 'EXECUTE'
+        ) AS core_public,
+        EXISTS (
+          SELECT 1
+          FROM pg_catalog.aclexplode(COALESCE(wrapper.proacl, pg_catalog.acldefault('f', wrapper.proowner))) AS privilege
+          WHERE privilege.grantee = 0 AND privilege.privilege_type = 'EXECUTE'
+        ) AS wrapper_public
+      FROM pg_catalog.pg_proc AS wrapper
+      JOIN pg_catalog.pg_proc AS schedule_guard
+        ON schedule_guard.oid = 'public.apply_farm_mutation_without_task_schedule_guard(uuid,text,text,uuid,text,bigint,jsonb,text,uuid)'::regprocedure
+      JOIN pg_catalog.pg_proc AS core
+        ON core.oid = 'public.apply_farm_mutation_without_iana_timezone_guard(uuid,text,text,uuid,text,bigint,jsonb,text,uuid)'::regprocedure
+      WHERE wrapper.oid = 'public.apply_farm_mutation(uuid,text,text,uuid,text,bigint,jsonb,text,uuid)'::regprocedure
+    `);
+    const guardPrivileges = timezoneGuardPrivileges.rows[0];
+    assert(guardPrivileges?.wrapper_tenant === true, 'TIMEZONE_GUARD_WRAPPER_NOT_GRANTED_TO_TENANT');
+    assert(guardPrivileges?.schedule_guard_tenant === false, 'TASK_SCHEDULE_INNER_GUARD_GRANTED_TO_TENANT');
+    assert(guardPrivileges?.core_tenant === false, 'TIMEZONE_GUARD_CORE_GRANTED_TO_TENANT');
+    assert(guardPrivileges?.schedule_guard_public === false, 'TASK_SCHEDULE_INNER_GUARD_GRANTED_TO_PUBLIC');
+    assert(guardPrivileges?.core_public === false, 'TIMEZONE_GUARD_CORE_GRANTED_TO_PUBLIC');
+    assert(guardPrivileges?.wrapper_public === false, 'TIMEZONE_GUARD_WRAPPER_GRANTED_TO_PUBLIC');
 
     currentStage = 'seed-verified-actors-and-organizations';
     await insertVerifiedUsers(migration, users);
@@ -233,6 +278,9 @@ async function main() {
       { TenantDatabaseService },
       { MutationKernelService },
       { MutationKernelController },
+      { FarmDomainController },
+      { FarmDomainService },
+      { OrganizationsService },
       { VerifiedSessionGuard },
       { FARMLY_AUTH },
       { FarmlyHttpExceptionFilter },
@@ -240,6 +288,9 @@ async function main() {
       import(new URL('../../dist/db/tenant-database.service.js', import.meta.url)),
       import(new URL('../../dist/common/mutations/mutation-kernel.service.js', import.meta.url)),
       import(new URL('../../dist/common/mutations/mutation-kernel.controller.js', import.meta.url)),
+      import(new URL('../../dist/farm-domain/farm-domain.controller.js', import.meta.url)),
+      import(new URL('../../dist/farm-domain/farm-domain.service.js', import.meta.url)),
+      import(new URL('../../dist/organizations/organizations.service.js', import.meta.url)),
       import(new URL('../../dist/auth/verified-session.guard.js', import.meta.url)),
       import(new URL('../../dist/auth/auth.module.js', import.meta.url)),
       import(new URL('../../dist/common/farmly-http-exception.filter.js', import.meta.url)),
@@ -253,6 +304,7 @@ async function main() {
     await tenant.onModuleInit();
     const config = { get: (key) => key === 'farmlyEnvironment' ? { cursorSigningKey: process.env.CURSOR_SIGNING_KEY } : undefined };
     const kernel = new MutationKernelService(tenant, config);
+    const organizations = new OrganizationsService(tenant, config);
     const auth = {
       api: {
         getSession: async ({ headers }) => {
@@ -264,11 +316,12 @@ async function main() {
     };
     class MutationKernelHttpTestModule {}
     Module({
-      controllers: [MutationKernelController],
+      controllers: [MutationKernelController, FarmDomainController],
       providers: [
         VerifiedSessionGuard,
         { provide: FARMLY_AUTH, useValue: auth },
         { provide: MutationKernelService, useValue: kernel },
+        { provide: FarmDomainService, useValue: {} },
       ],
     })(MutationKernelHttpTestModule);
     app = await NestFactory.create(MutationKernelHttpTestModule, new ExpressAdapter(), { logger: false });
@@ -285,8 +338,27 @@ async function main() {
         body: JSON.stringify(intent),
       },
     );
+    const updateFarm = (token, orgId, farmId, intent) => fetch(
+      `${origin}/v1/organizations/${orgId}/farms/${farmId}`,
+      {
+        method: 'PATCH',
+        headers: httpHeaders(token, {
+          'content-type': 'application/json',
+          'idempotency-key': intent.operationId,
+        }),
+        body: JSON.stringify(intent),
+      },
+    );
     const batch = (token, orgId, intents) => fetch(
       `${origin}/v1/organizations/${orgId}/sync/mutations`,
+      {
+        method: 'POST',
+        headers: httpHeaders(token, { 'content-type': 'application/json' }),
+        body: JSON.stringify({ schemaVersion: 'farm-mutation-batch.v1', continuityEpoch: '1', operations: intents }),
+      },
+    );
+    const farmBatch = (token, orgId, farmId, intents) => fetch(
+      `${origin}/v1/organizations/${orgId}/farms/${farmId}/sync/mutations`,
       {
         method: 'POST',
         headers: httpHeaders(token, { 'content-type': 'application/json' }),
@@ -340,6 +412,94 @@ async function main() {
     const adminCreate = await direct(admin.token, organizationId, adminIntent);
     const adminResponse = await expectJson(adminCreate, 200, 'ADMIN_FARM_CREATE');
     assert(adminResponse?.data && adminResponse?.meta?.scopePolicyVersion === '3', 'ADMIN_FARM_CREATE_ENVELOPE_INVALID');
+
+    currentStage = 'invalid-farm-timezone-durable-rejection-and-replay';
+    const timezoneCreate = mutation(randomUUID(), randomUUID(), 'Invalid timezone farm');
+    timezoneCreate.payload.timezone = 'Mars/Olympus_Mons';
+    const invalidCreateResponse = await direct(owner.token, organizationId, timezoneCreate);
+    const invalidCreateBody = await expectJson(invalidCreateResponse, 200, 'TIMEZONE_CREATE_RESPONSE');
+    assert(invalidCreateBody?.data?.outcome === 'rejected'
+      && invalidCreateBody.data.code === 'FIELD_VALIDATION_FAILED', 'TIMEZONE_CREATE_NOT_REJECTED');
+    const invalidCreateCounts = await countOperation(migration, organizationId, timezoneCreate.resourceId, timezoneCreate.operationId);
+    assert(invalidCreateCounts.farms === 0 && invalidCreateCounts.clocks === 0
+      && invalidCreateCounts.proofs === 1 && invalidCreateCounts.caches === 1
+      && invalidCreateCounts.changes === 0 && invalidCreateCounts.audits === 0
+      && invalidCreateCounts.policy_version === '3', 'TIMEZONE_CREATE_NOT_DURABLY_REJECTED');
+    const invalidCreateProof = await migration.query(`
+      SELECT outcome, result_code
+      FROM public.applied_operations
+      WHERE organization_id = $1::uuid AND operation_id = $2::uuid
+    `, [organizationId, timezoneCreate.operationId]);
+    assert(invalidCreateProof.rows[0]?.outcome === 'rejected'
+      && invalidCreateProof.rows[0]?.result_code === 'FIELD_VALIDATION_FAILED', 'TIMEZONE_CREATE_PROOF_INVALID');
+    const invalidCreateStatus = await readBody(await statuses(owner.token, [timezoneCreate.operationId]));
+    assert(invalidCreateStatus?.data?.operations?.[0]?.outcome === 'rejected', 'TIMEZONE_CREATE_STATUS_NOT_REJECTED');
+    const invalidCreateReplay = await readBody(await direct(owner.token, organizationId, timezoneCreate));
+    assert(invalidCreateReplay?.data?.outcome === 'rejected'
+      && invalidCreateReplay.data.code === 'FIELD_VALIDATION_FAILED', 'TIMEZONE_CREATE_REPLAY_CHANGED');
+    const changedCreate = {
+      ...timezoneCreate,
+      payload: { ...timezoneCreate.payload, timezone: 'Asia/Ho_Chi_Minh' },
+    };
+    const changedCreateResponse = await direct(owner.token, organizationId, changedCreate);
+    const changedCreateBody = await readBody(changedCreateResponse);
+    assert(changedCreateResponse.status === 409 && changedCreateBody?.error?.code === 'OPERATION_ID_REUSED',
+      'TIMEZONE_CREATE_CHANGED_HASH_NOT_REJECTED');
+
+    currentStage = 'invalid-farm-update-timezone-does-not-mutate-farm';
+    const readFarmState = () => migration.query(`
+      SELECT farm.timezone, farm.version, clock.revision::TEXT AS clock_revision,
+             organization.policy_version::TEXT AS policy_version,
+             (SELECT count(*)::INTEGER FROM public.change_sets AS change_set
+               WHERE change_set.organization_id = farm.organization_id AND change_set.farm_id = farm.id) AS changes,
+             (SELECT count(*)::INTEGER FROM public.audit_events AS audit
+               WHERE audit.organization_id = farm.organization_id AND audit.farm_id = farm.id) AS audits
+      FROM public.farms AS farm
+      JOIN public.organizations AS organization ON organization.id = farm.organization_id
+      JOIN public.farm_clocks AS clock ON clock.organization_id = farm.organization_id AND clock.farm_id = farm.id
+      WHERE farm.organization_id = $1::uuid AND farm.id = $2::uuid
+    `, [organizationId, ownerIntent.resourceId]);
+    const farmBeforeInvalidUpdate = await readFarmState();
+    assert(farmBeforeInvalidUpdate.rows.length === 1, 'TIMEZONE_UPDATE_FIXTURE_MISSING');
+    const timezoneUpdate = {
+      ...mutation(randomUUID(), ownerIntent.resourceId, 'Invalid timezone update'),
+      type: 'farm.update',
+      baseVersion: 1,
+      payload: { timezone: 'Mars/Olympus_Mons' },
+    };
+    const invalidUpdateResponse = await updateFarm(owner.token, organizationId, ownerIntent.resourceId, timezoneUpdate);
+    const invalidUpdateBody = await expectJson(invalidUpdateResponse, 200, 'TIMEZONE_UPDATE_RESPONSE');
+    assert(invalidUpdateBody?.data?.outcome === 'rejected'
+      && invalidUpdateBody.data.code === 'FIELD_VALIDATION_FAILED', 'TIMEZONE_UPDATE_NOT_REJECTED');
+    const farmAfterInvalidUpdate = await readFarmState();
+    assert(JSON.stringify(farmAfterInvalidUpdate.rows[0]) === JSON.stringify(farmBeforeInvalidUpdate.rows[0]),
+      'TIMEZONE_UPDATE_MUTATED_FARM');
+    const invalidUpdateCounts = await countOperation(migration, organizationId, ownerIntent.resourceId, timezoneUpdate.operationId);
+    assert(invalidUpdateCounts.farms === 1 && invalidUpdateCounts.clocks === 1
+      && invalidUpdateCounts.proofs === 1 && invalidUpdateCounts.caches === 1
+      && invalidUpdateCounts.changes === 0 && invalidUpdateCounts.audits === 0
+      && invalidUpdateCounts.policy_version === '3', 'TIMEZONE_UPDATE_NOT_DURABLY_REJECTED');
+    const invalidUpdateStatus = await readBody(await statuses(owner.token, [timezoneUpdate.operationId]));
+    assert(invalidUpdateStatus?.data?.operations?.[0]?.outcome === 'rejected', 'TIMEZONE_UPDATE_STATUS_NOT_REJECTED');
+    const invalidUpdateReplay = await readBody(await updateFarm(owner.token, organizationId, ownerIntent.resourceId, timezoneUpdate));
+    assert(invalidUpdateReplay?.data?.outcome === 'rejected'
+      && invalidUpdateReplay.data.code === 'FIELD_VALIDATION_FAILED', 'TIMEZONE_UPDATE_REPLAY_CHANGED');
+    const changedUpdate = {
+      ...timezoneUpdate,
+      payload: { timezone: 'Asia/Ho_Chi_Minh' },
+    };
+    const changedUpdateResponse = await updateFarm(owner.token, organizationId, ownerIntent.resourceId, changedUpdate);
+    const changedUpdateBody = await readBody(changedUpdateResponse);
+    assert(changedUpdateResponse.status === 409 && changedUpdateBody?.error?.code === 'OPERATION_ID_REUSED',
+      'TIMEZONE_UPDATE_CHANGED_HASH_NOT_REJECTED');
+    const validTimezoneUpdate = {
+      ...timezoneUpdate,
+      operationId: randomUUID(),
+      payload: { timezone: 'America/New_York' },
+    };
+    const validUpdateBody = await readBody(await updateFarm(owner.token, organizationId, ownerIntent.resourceId, validTimezoneUpdate));
+    assert(validUpdateBody?.data?.outcome === 'applied'
+      && validUpdateBody.data.farm?.timezone === 'America/New_York', 'TIMEZONE_UPDATE_VALID_IANA_REJECTED');
 
     currentStage = 'role-and-cross-scope-denials-both-transports';
     for (const [actor, label] of [[member, 'MEMBER'], [viewer, 'VIEWER']]) {
@@ -396,6 +556,118 @@ async function main() {
     } finally {
       if (lockHeld) await migration.query('ROLLBACK').catch(() => {});
     }
+
+    currentStage = 'task-occurrence-authorization-rechecked-before-farm-lock';
+    const memberMembership = await migration.query(`
+      SELECT id FROM public.organization_memberships
+      WHERE organization_id = $1::uuid AND user_id = $2 AND status = 'active'
+    `, [organizationId, member.id]);
+    assert(memberMembership.rowCount === 1, 'TASK_SCHEDULE_MEMBER_FIXTURE_MISSING');
+    const taskTemplateId = randomUUID();
+    const targetDate = await migration.query(`
+      SELECT (CURRENT_DATE + 1)::TEXT AS occurrence_date,
+             ((EXTRACT(DOW FROM CURRENT_DATE + 1)::INTEGER + 1) % 7) AS unselected_weekday
+    `);
+    const occurrenceDate = targetDate.rows[0].occurrence_date;
+    const selectedWeekday = targetDate.rows[0].unselected_weekday;
+    await migration.query(`
+      INSERT INTO public.farm_grants (organization_id, membership_id, farm_id, role)
+      VALUES ($1::uuid, $2::uuid, $3::uuid, 'manager')
+    `, [organizationId, memberMembership.rows[0].id, ownerIntent.resourceId]);
+    await migration.query(`
+      INSERT INTO public.task_templates (
+        organization_id, farm_id, id, title, kind, recurrence, starts_on, status, version
+      ) VALUES (
+        $1::uuid, $2::uuid, $3::uuid, 'Task schedule lock test', 'general',
+        $4::jsonb, CURRENT_DATE - 1, 'active', 1
+      )
+    `, [
+      organizationId,
+      ownerIntent.resourceId,
+      taskTemplateId,
+      JSON.stringify({ freq: 'weekly', timeOfDay: '06:00', daysOfWeek: [selectedWeekday] }),
+    ]);
+    const occurrenceSlot = 'default';
+    const occurrenceId = occurrenceIdFor(ownerIntent.resourceId, taskTemplateId, occurrenceDate, occurrenceSlot);
+    const transitionIntent = {
+      schemaVersion: 'farm-mutation.v1',
+      continuityEpoch: '1',
+      operationId: randomUUID(),
+      type: 'taskOccurrence.transition',
+      resourceId: occurrenceId,
+      dependsOn: [],
+      payload: {
+        templateId: taskTemplateId,
+        occurrenceDate,
+        slot: occurrenceSlot,
+        transition: 'complete',
+      },
+    };
+    taskResourceLocker = new Client({
+      connectionString: withApplicationName(migrationUrl, `farmly-task-lock-${suffix}`),
+    });
+    await taskResourceLocker.connect();
+    await taskResourceLocker.query('BEGIN');
+    let resourceLockHeld = true;
+    let organizationLockHeld = false;
+    let waitingTaskRequest;
+    try {
+      await taskResourceLocker.query(
+        'SELECT id FROM public.farms WHERE organization_id = $1::uuid AND id = $2::uuid FOR UPDATE',
+        [organizationId, ownerIntent.resourceId],
+      );
+
+      await migration.query('BEGIN');
+      organizationLockHeld = true;
+      const lock = await migration.query(
+        'SELECT pg_backend_pid() AS pid FROM public.organizations WHERE id = $1::uuid FOR UPDATE',
+        [organizationId],
+      );
+      waitingTaskRequest = farmBatch(member.token, organizationId, ownerIntent.resourceId, [transitionIntent]);
+      await waitForLockWait(migration, httpApplicationName, Number(lock.rows[0].pid));
+
+      const grantRemoval = await migration.query(`
+        DELETE FROM public.farm_grants
+        WHERE organization_id = $1::uuid AND membership_id = $2::uuid AND farm_id = $3::uuid
+        RETURNING farm_id
+      `, [organizationId, memberMembership.rows[0].id, ownerIntent.resourceId]);
+      assert(grantRemoval.rowCount === 1, 'TASK_SCHEDULE_MANAGER_GRANT_NOT_REVOKED');
+      await migration.query('COMMIT');
+      organizationLockHeld = false;
+
+      let timeoutId;
+      const responseBeforeFarmUnlock = await Promise.race([
+        waitingTaskRequest.then((response) => ({ response })),
+        new Promise((resolve) => {
+          timeoutId = setTimeout(() => resolve({ timedOut: true }), 5_000);
+        }),
+      ]);
+      clearTimeout(timeoutId);
+      if (responseBeforeFarmUnlock.timedOut) {
+        await taskResourceLocker.query('ROLLBACK');
+        resourceLockHeld = false;
+        await waitingTaskRequest.catch(() => undefined);
+        assert(false, 'TASK_SCHEDULE_GUARD_LOCKED_FARM_BEFORE_AUTH_RECHECK');
+      }
+      await expectForbidden(responseBeforeFarmUnlock.response, 'TASK_SCHEDULE_GRANT_REVOKED_AFTER_ORG_LOCK');
+
+      const deniedMutation = await migration.query(`
+        SELECT
+          (SELECT count(*)::INTEGER FROM public.applied_operations WHERE organization_id = $1::uuid AND operation_id = $2::uuid) AS proofs,
+          (SELECT count(*)::INTEGER FROM public.change_sets WHERE organization_id = $1::uuid AND farm_id = $3::uuid AND operation_id = $2::uuid) AS changes,
+          (SELECT count(*)::INTEGER FROM public.audit_events WHERE organization_id = $1::uuid AND farm_id = $3::uuid AND operation_id = $2::uuid) AS audits,
+          (SELECT count(*)::INTEGER FROM public.task_occurrences WHERE organization_id = $1::uuid AND farm_id = $3::uuid AND id = $4::uuid) AS occurrences
+      `, [organizationId, transitionIntent.operationId, ownerIntent.resourceId, occurrenceId]);
+      assert(Object.values(deniedMutation.rows[0]).every((count) => count === 0), 'TASK_SCHEDULE_REVOKED_TRANSITION_MUTATED');
+      await taskResourceLocker.query('COMMIT');
+      resourceLockHeld = false;
+    } finally {
+      if (organizationLockHeld) await migration.query('ROLLBACK').catch(() => {});
+      if (resourceLockHeld) await taskResourceLocker.query('ROLLBACK').catch(() => {});
+      await waitingTaskRequest?.catch(() => undefined);
+    }
+    await taskResourceLocker.end();
+    taskResourceLocker = undefined;
 
     currentStage = 'S06_RESPONSE_CACHE_EXPIRY_DURABLE_PROOF';
     const cacheIntent = mutation(randomUUID(), randomUUID(), 'Cache-expiry farm');
@@ -487,6 +759,57 @@ async function main() {
     const largePolicyBody = await expectJson(largePolicyResponse, 200, 'POLICY_BIGINT_CREATE');
     assert(largePolicyBody?.meta?.scopePolicyVersion === '9007199254740994', 'POLICY_BIGINT_NOT_EXACT_DECIMAL_STRING');
 
+    currentStage = 'S01_multi_farm_same_epoch_policy_bump_and_directory_discovery';
+    const firstOfflineFarm = mutation(randomUUID(), randomUUID(), 'First offline farm');
+    const secondOfflineFarm = mutation(randomUUID(), randomUUID(), 'Second offline farm');
+    const multiFarmResponse = await batch(owner.token, organizationId, [firstOfflineFarm, secondOfflineFarm]);
+    const multiFarmBody = await expectJson(multiFarmResponse, 200, 'S01_MULTI_FARM_BATCH');
+    assertBatchOutcome(multiFarmBody, firstOfflineFarm.operationId, 'applied', 'S01_FIRST_FARM_NOT_APPLIED');
+    assertBatchOutcome(multiFarmBody, secondOfflineFarm.operationId, 'applied', 'S01_SECOND_FARM_INVALIDATED_BY_POLICY_BUMP');
+    assert(multiFarmBody?.meta?.scopePolicyVersion === '9007199254740996', 'S01_MULTI_FARM_POLICY_VERSION_NOT_EXACT');
+    for (const farmIntent of [firstOfflineFarm, secondOfflineFarm]) {
+      const counts = await countOperation(migration, organizationId, farmIntent.resourceId, farmIntent.operationId);
+      assert(counts.farms === 1 && counts.clocks === 1 && counts.proofs === 1
+        && counts.changes === 1 && counts.audits === 1 && counts.policy_version === '9007199254740996',
+      'S01_MULTI_FARM_MUTATION_NOT_ATOMIC');
+    }
+    const refreshedDirectory = await organizations.farmDirectoryFor(
+      { actorId: owner.id }, organizationId, null, null,
+    );
+    const discoveredFarmIds = new Set(refreshedDirectory.farms.map((farm) => farm.farmId));
+    assert(refreshedDirectory.scopePolicyVersion === '9007199254740996'
+      && discoveredFarmIds.has(firstOfflineFarm.resourceId)
+      && discoveredFarmIds.has(secondOfflineFarm.resourceId),
+    'S01_SECOND_INSTALL_DIRECTORY_DISCOVERY_FAILED');
+
+    currentStage = 'task-schedule-archived-farm-canonical-rejection';
+    await migration.query(`
+      UPDATE public.farms
+         SET status = 'archived'
+       WHERE organization_id = $1::uuid AND id = $2::uuid
+    `, [organizationId, ownerIntent.resourceId]);
+    const archivedFarmTransition = { ...transitionIntent, operationId: randomUUID() };
+    const archivedTransitionResponse = await farmBatch(
+      owner.token,
+      organizationId,
+      ownerIntent.resourceId,
+      [archivedFarmTransition],
+    );
+    const archivedTransitionBody = await expectJson(archivedTransitionResponse, 200, 'TASK_SCHEDULE_ARCHIVED_FARM');
+    const archivedOutcome = assertBatchOutcome(
+      archivedTransitionBody,
+      archivedFarmTransition.operationId,
+      'rejected',
+      'TASK_SCHEDULE_ARCHIVED_FARM',
+    );
+    assert(archivedOutcome.code === 'RESOURCE_ARCHIVED', 'TASK_SCHEDULE_ARCHIVED_FARM_CODE');
+    const archivedOccurrence = await migration.query(`
+      SELECT count(*)::INTEGER AS count
+        FROM public.task_occurrences
+       WHERE organization_id = $1::uuid AND farm_id = $2::uuid AND id = $3::uuid
+    `, [organizationId, ownerIntent.resourceId, occurrenceId]);
+    assert(archivedOccurrence.rows[0].count === 0, 'TASK_SCHEDULE_ARCHIVED_FARM_MATERIALIZED_OCCURRENCE');
+
     currentStage = 'complete';
   } catch (error) {
     operationError = error;
@@ -494,6 +817,10 @@ async function main() {
   } finally {
     if (app) await app.close().catch(() => {});
     await Promise.all(createdDatabaseServices.map((service) => service.onModuleDestroy().catch(() => {})));
+    if (taskResourceLocker) {
+      await taskResourceLocker.query('ROLLBACK').catch(() => {});
+      await taskResourceLocker.end().catch(() => {});
+    }
     if (migration) {
       await migration.query('ROLLBACK').catch(() => {});
       if (auditFailureTriggerName) await migration.query(`DROP TRIGGER IF EXISTS ${auditFailureTriggerName} ON public.audit_events`).catch(() => {});
@@ -519,7 +846,7 @@ async function main() {
   process.stdout.write(JSON.stringify({
     status: 'passed',
     scope: 'P03.5 mutation-kernel real PostgreSQL/app-role + verified Nest HTTP integration',
-    cases: ['S-05', 'S-06', 'S-08', 'S-19', 'owner-admin', 'role-denial', 'cross-scope', 'shared-transports', 'post-lock-auth', 'batch-siblings-parent-block', 'bigint-policy-version'],
+    cases: ['S-01-multi-farm-policy-bump-directory-discovery', 'S-05', 'S-06', 'S-08', 'S-19', 'owner-admin', 'role-denial', 'cross-scope', 'shared-transports', 'post-lock-auth', 'task-schedule-post-lock-authorization-before-farm-lock', 'task-schedule-archived-farm-canonical-rejection', 'batch-siblings-parent-block', 'bigint-policy-version'],
   }) + '\n');
 }
 

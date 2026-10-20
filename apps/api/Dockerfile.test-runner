@@ -7,6 +7,7 @@ RUN apt-get update \
 WORKDIR /workspace
 
 COPY package*.json ./
+COPY prisma ./prisma
 RUN npm ci --strict-peer-deps --no-audit --no-fund
 
 COPY . .
